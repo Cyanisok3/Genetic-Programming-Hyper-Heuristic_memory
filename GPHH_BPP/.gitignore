@@ -1,0 +1,16 @@
+# Java compiled files
+out/
+
+# IDE
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Test outputs
+output_*.txt
+sln_*.txt

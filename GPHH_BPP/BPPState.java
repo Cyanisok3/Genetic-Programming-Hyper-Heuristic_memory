@@ -3,27 +3,30 @@
  * Used by terminal nodes to evaluate their values.
  */
 public class BPPState {
-    
+
     private int[] items;           // All items in the instance
     private int currentPosition;    // Index of current item being placed (0-based)
     private int binFullness;        // Current bin's used space
     private int binCapacity;        // Bin capacity (constant)
     private Memory memory;           // Memory of last 100 items
-    
+    private int binCount;           // Number of bins currently in use (for short-term terminals)
+
     public BPPState(int[] items, int binCapacity) {
         this.items = items;
         this.binCapacity = binCapacity;
         this.currentPosition = 0;
         this.binFullness = 0;
         this.memory = new Memory();
+        this.binCount = 1;  // Start with one empty bin
     }
-    
+
     public BPPState(BPPState other) {
         this.items = other.items;
         this.binCapacity = other.binCapacity;
         this.currentPosition = other.currentPosition;
         this.binFullness = other.binFullness;
         this.memory = other.memory.copy();
+        this.binCount = other.binCount;
     }
     
     /**
@@ -135,7 +138,34 @@ public class BPPState {
     public Memory getMemory() {
         return memory;
     }
-    
+
+    /**
+     * Get the number of bins currently in use.
+     * Short-term terminal: tracks immediate bin usage.
+     * @return Number of bins
+     */
+    public int getBinCount() {
+        return binCount;
+    }
+
+    /**
+     * Get the current bin's fullness ratio (fullness / capacity).
+     * Short-term terminal: measures how full the current bin is.
+     * @return Fullness ratio (0.0 to 1.0)
+     */
+    public double getFullnessRatio() {
+        return (double) binFullness / binCapacity;
+    }
+
+    /**
+     * Get progress ratio (items processed / total items).
+     * Short-term terminal: indicates how far through the instance we are.
+     * @return Progress ratio (0.0 to 1.0)
+     */
+    public double getProgressRatio() {
+        return (double) (currentPosition + 1) / items.length;
+    }
+
     // Setters for BPPSolver
     
     public void setCurrentPosition(int currentPosition) {
@@ -148,6 +178,14 @@ public class BPPState {
     
     public void setMemory(Memory memory) {
         this.memory = memory;
+    }
+
+    public void setBinCount(int binCount) {
+        this.binCount = binCount;
+    }
+
+    public void incrementBinCount() {
+        this.binCount++;
     }
     
     /**

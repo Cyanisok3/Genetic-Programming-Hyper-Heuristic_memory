@@ -285,3 +285,93 @@ class MemoryFXLTerminal extends TerminalNode {
         return "FXL";
     }
 }
+
+// =============================================================================
+// SHORT-TERM TERMINALS (inspired by Jin et al. 2024)
+// These terminals provide immediate/local information about the current state,
+// complementing the memory terminals which provide historical information.
+// =============================================================================
+
+/**
+ * BN - Bin Number: Number of bins currently in use.
+ * Short-term terminal: tracks how many bins have been opened so far.
+ * Higher value indicates more bins used, useful for controlling bin opening frequency.
+ */
+class BinCountTerminal extends TerminalNode {
+
+    @Override
+    public double evaluate(BPPState state) {
+        return state.getBinCount();
+    }
+
+    @Override
+    public GPNode copy() {
+        return new BinCountTerminal();
+    }
+
+    @Override
+    public void mutate(Random rand) {
+        // Terminals cannot be mutated
+    }
+
+    @Override
+    public String toString() {
+        return "BN";
+    }
+}
+
+/**
+ * FR - Fullness Ratio: Current bin fullness as ratio of capacity (0.0 to 1.0).
+ * Short-term terminal: indicates how full the current bin is.
+ * Useful for deciding whether to continue filling the bin or open a new one.
+ */
+class FullnessRatioTerminal extends TerminalNode {
+
+    @Override
+    public double evaluate(BPPState state) {
+        return state.getFullnessRatio();
+    }
+
+    @Override
+    public GPNode copy() {
+        return new FullnessRatioTerminal();
+    }
+
+    @Override
+    public void mutate(Random rand) {
+        // Terminals cannot be mutated
+    }
+
+    @Override
+    public String toString() {
+        return "FR";
+    }
+}
+
+/**
+ * P - Progress: Ratio of items processed to total items (0.0 to 1.0).
+ * Short-term terminal: indicates how far through the instance we are.
+ * Useful for adaptive behavior at different stages of packing.
+ */
+class ProgressTerminal extends TerminalNode {
+
+    @Override
+    public double evaluate(BPPState state) {
+        return state.getProgressRatio();
+    }
+
+    @Override
+    public GPNode copy() {
+        return new ProgressTerminal();
+    }
+
+    @Override
+    public void mutate(Random rand) {
+        // Terminals cannot be mutated
+    }
+
+    @Override
+    public String toString() {
+        return "P";
+    }
+}

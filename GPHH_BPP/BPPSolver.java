@@ -49,12 +49,12 @@ public class BPPSolver {
      */
     public Solution solveWithOrder(int[] items, Heuristic heuristic, int capacity) {
         int itemCount = items.length;
-        
+
         List<Bin> bins = new ArrayList<>();
         bins.add(new Bin(capacity));
-        
+
         Memory memory = new Memory();
-        
+
         for (int itemIdx = 0; itemIdx < itemCount; itemIdx++) {
             int pieceSize = items[itemIdx];
 
@@ -87,7 +87,7 @@ public class BPPSolver {
                 int binIdx = cand[0];
                 int remainingSpace = cand[1];
                 Bin bin = bins.get(binIdx);
-                BPPState state = createState(items, itemIdx, bin, memory);
+                BPPState state = createState(items, itemIdx, bin, memory, bins.size());
                 double score = heuristic.evaluate(state);
 
                 // Best Fit Decreasing tiebreaker: prefer bins with less remaining space
@@ -111,26 +111,29 @@ public class BPPSolver {
             // Add item to memory (for future terminal calculations)
             memory.addItem(pieceSize);
         }
-        
+
         return new Solution("solved", bins);
     }
     
     /**
      * Create a BPPState for evaluating placement of item at index in a specific bin.
      */
-    private BPPState createState(int[] items, int itemIdx, Bin bin, Memory memory) {
+    private BPPState createState(int[] items, int itemIdx, Bin bin, Memory memory, int binCount) {
         // Create base state
         BPPState state = new BPPState(items, bin.getCapacity());
-        
+
         // Set the state to reflect BEFORE placing the item
         // currentPosition = itemIdx (we're evaluating the item at this index)
         // binFullness = current bin's fullness (before adding this item)
         state.setCurrentPosition(itemIdx);
         state.setBinFullness(bin.getFullness());
-        
+
         // Copy memory
         state.setMemory(memory.copy());
-        
+
+        // Set bin count for short-term terminals
+        state.setBinCount(binCount);
+
         return state;
     }
 }

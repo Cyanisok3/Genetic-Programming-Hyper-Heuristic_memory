@@ -34,8 +34,21 @@ public class Main {
     public static final double[] CLASS_WEIGHTS = {1.0, 1.0, 1.5, 1.5};
     // Generate training instances from Gaussian distributions (per Burke et al. 2010, Algorithm 2)
     public static final boolean GENERATE_TRAINING_DATA = true;
-    public static final int TRAINING_INSTANCES_PER_CLASS = 5;
-    public static final int TRAINING_ITEMS_PER_INSTANCE = 500;
+    // Increased training data for better generalization
+    public static final int TRAINING_INSTANCES_PER_CLASS = 10;  // Increased from 5
+    public static final int TRAINING_ITEMS_PER_INSTANCE = 1000; // Increased from 500
+    // Bimodal training: simulate test sets 5-8 with 50% mix of two distributions
+    public static final boolean ADD_BIMODAL_TRAINING = false; // Disabled for academic compliance
+    public static final int BIMODAL_INSTANCES_PER_MIX = 5; // 5 instances per bimodal mix
+    public static final int BIMODAL_ITEMS_PER_INSTANCE = 1000;
+    // Bimodal configurations: mix of two Gaussian distributions (per test sets 5-8)
+    // Format: {dist1_mean, dist1_sd, dist2_mean, dist2_sd}
+    public static final double[][] BIMODAL_PARAMS = {
+        {50.0, 5.0, 35.0, 5.0},   // Bimodal 0: mean 50+35 (like test set 5)
+        {50.0, 5.0, 30.0, 5.0},   // Bimodal 1: mean 50+30 (like test set 6)
+        {50.0, 5.0, 25.0, 5.0},   // Bimodal 2: mean 50+25 (like test set 7)
+        {50.0, 10.0, 35.0, 5.0},  // Bimodal 3: mean 50+35 high-low S.D. (like test set 9)
+    };
     // Class parameters: (mean, standardDeviation) per Burke et al. 2010 Table II
     public static final double[][] CLASS_PARAMS = {
         {50.0, 5.0},   // Class 0: high mean, low S.D.
@@ -81,7 +94,9 @@ public class Main {
             String className = getClassName(c);
             System.out.println("  Class " + c + " (" + className + "): " + count + " instances");
         }
-        System.out.println("Total: " + totalInstances + " instances");
+        System.out.println("Total: " + totalInstances + " instances (" +
+            TRAINING_INSTANCES_PER_CLASS + " unimodal + " +
+            (ADD_BIMODAL_TRAINING ? BIMODAL_PARAMS.length * BIMODAL_INSTANCES_PER_MIX : 0) + " bimodal per class 2)");
 
         if (totalInstances == 0) {
             System.err.println("Error: No training instances found.");
@@ -172,6 +187,7 @@ public class Main {
     private static void generateTrainingInstances(List<BPPInstance>[] trainingByClass) {
         Random rand = new Random(TRAINING_SEED);
 
+        // Generate unimodal instances (per Burke 2010)
         for (int c = 0; c < NUM_CLASSES; c++) {
             double mean = CLASS_PARAMS[c][0];
             double sd = CLASS_PARAMS[c][1];
@@ -186,6 +202,47 @@ public class Main {
                 trainingByClass[c].add(instance);
             }
         }
+
+        // Generate bimodal instances for better generalization (simulate test sets 5-8, 9-12)
+        if (ADD_BIMODAL_TRAINING) {
+            System.out.println("\nGenerating bimodal instances for generalization...");
+            for (int m = 0; m < BIMODAL_PARAMS.length; m++) {
+                double[] params = BIMODAL_PARAMS[m];
+                double mean1 = params[0], sd1 = params[1];
+                double mean2 = params[2], sd2 = params[3];
+
+                System.out.println("  Bimodal mix " + m + ": (" + mean1 + "," + sd1 + ") + (" + mean2 + "," + sd2 + ")");
+
+                for (int i = 0; i < BIMODAL_INSTANCES_PER_MIX; i++) {
+                    int[] items = generateBimodalItems(rand, mean1, sd1, mean2, sd2, BIMODAL_ITEMS_PER_INSTANCE);
+                    String name = "gen_bimodal" + m + "_binpack" + i;
+                    // Assign to class 2 (high S.D.) for class weight purposes
+                    BPPInstance instance = new BPPInstance(name, items, 100, 2);
+                    trainingByClass[2].add(instance);
+                }
+            }
+        }
+    }
+
+    /**
+     * Generate items from a bimodal distribution (mix of two Gaussians).
+     * Each item has 50% chance of coming from each distribution.
+     */
+    private static int[] generateBimodalItems(Random rand, double mean1, double sd1,
+                                              double mean2, double sd2, int count) {
+        int[] items = new int[count];
+        for (int i = 0; i < count; i++) {
+            double value;
+            if (rand.nextDouble() < 0.5) {
+                value = mean1 + sd1 * rand.nextGaussian();
+            } else {
+                value = mean2 + sd2 * rand.nextGaussian();
+            }
+            // Truncate to valid range [1, 99]
+            value = Math.max(1, Math.min(99, value));
+            items[i] = (int) Math.round(value);
+        }
+        return items;
     }
 
     /**

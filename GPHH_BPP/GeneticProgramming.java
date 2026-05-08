@@ -11,7 +11,7 @@ public class GeneticProgramming {
     
     // GP Parameters (from Memetic Computing 2024 paper)
     public static final int POPULATION_SIZE = 200;      // Increased from 80 (paper: 200)
-    public static final int MAX_GENERATIONS = 40;      // Training mode
+    public static final int MAX_GENERATIONS = 20;      // Training mode
     public static final double CROSSOVER_RATE = 1.00;    // Paper: 100% (crossover is main search)
     public static final double MUTATION_RATE = 0.02;     // Paper: 2% (low mutation)
     public static final double REPRODUCTION_RATE = 0.00; // No pure reproduction
@@ -21,9 +21,11 @@ public class GeneticProgramming {
     public static final int MAX_DEPTH = 10;             // Increased from 6 (paper: 8-12)
     public static final int FUNCTION_ARITY_2 = 4;         // +, -, *, %
     public static final int FUNCTION_ARITY_1 = 1;         // FI
-    public static final int TERMINAL_COUNT = 10;           // S, E, L, MIN, MAX, AVE, FE, FL, FXE, FXL
-    // No parsimony pressure in paper - SIZE_PENALTY = 0
-    public static final double SIZE_PENALTY = 0.0;       // From paper (no penalty term)
+    public static final int TERMINAL_COUNT = 13;           // S, E, L, MIN, MAX, AVE, FE, FL, FXE, FXL + BN, FR, P
+    // Parsimony pressure: penalize larger trees to encourage simpler heuristics
+    // Value represents fitness penalty per node (e.g., 0.01 means 1% fitness penalty per 100 nodes)
+    public static final double SIZE_PENALTY = 0.02;     // Moderate penalty to control bloat
+    public static final double MAX_TREE_SIZE = 80;      // Soft limit - trees larger than this are penalized
     // Subsampling for faster fitness evaluation
     public static final int SAMPLE_SIZE = 8;            // Use subset for speed
     public static final double EARLY_STOP_THRESHOLD = 1.50; // Disabled, but kept for reference
@@ -351,9 +353,10 @@ public class GeneticProgramming {
     }
 
     /**
-     * Class-aware fitness using relative deviation with class weights.
+     * Class-aware fitness using relative deviation with class weights and parsimony pressure.
      * Evaluates instances per class, computes per-class avg deviation, then averages across classes.
      * High S.D. classes (2-3) get 1.5x weight to ensure better coverage of harder problem types.
+     * Tree size is penalized to encourage simpler heuristics.
      */
     private double evaluateClassAwareFitnessRelative(Heuristic h, List<BPPInstance>[] trainingByClass,
                                          int instancesPerClass, double[] classWeights) {
@@ -387,7 +390,16 @@ public class GeneticProgramming {
             totalWeight += weight;
         }
 
-        return (totalWeight > 0) ? totalWeightedAvg / totalWeight : 999.0;
+        double fitness = (totalWeight > 0) ? totalWeightedAvg / totalWeight : 999.0;
+
+        // Apply parsimony pressure: penalize large trees
+        int treeSize = h.getSize();
+        if (treeSize > MAX_TREE_SIZE) {
+            double excess = treeSize - MAX_TREE_SIZE;
+            fitness += SIZE_PENALTY * excess;
+        }
+
+        return fitness;
     }
 
     /**
@@ -530,6 +542,7 @@ public class GeneticProgramming {
     
     /**
      * Create a random terminal node.
+     * Includes both memory terminals and short-term terminals.
      */
     public GPNode createRandomTerminal() {
         int type = rand.nextInt(terminalCount);
@@ -537,13 +550,16 @@ public class GeneticProgramming {
             case 0: return new PieceSizeTerminal();        // S
             case 1: return new BinEmptinessTerminal();     // E
             case 2: return new SpaceLeftTerminal();        // L
-            case 3: return new MemoryMinTerminal();         // MIN
-            case 4: return new MemoryMaxTerminal();         // MAX
+            case 3: return new MemoryMinTerminal();       // MIN
+            case 4: return new MemoryMaxTerminal();        // MAX
             case 5: return new MemoryAveTerminal();        // AVE
-            case 6: return new MemoryFETerminal();         // FE
-            case 7: return new MemoryFLTerminal();          // FL
-            case 8: return new MemoryFXETerminal();        // FXE
-            case 9: return new MemoryFXLTerminal();         // FXL
+            case 6: return new MemoryFETerminal();       // FE
+            case 7: return new MemoryFLTerminal();        // FL
+            case 8: return new MemoryFXETerminal();      // FXE
+            case 9: return new MemoryFXLTerminal();       // FXL
+            case 10: return new BinCountTerminal();        // BN (short-term)
+            case 11: return new FullnessRatioTerminal();  // FR (short-term)
+            case 12: return new ProgressTerminal();        // P (short-term)
             default: return new PieceSizeTerminal();
         }
     }

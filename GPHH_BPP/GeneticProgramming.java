@@ -13,15 +13,24 @@ public class GeneticProgramming {
     public static final int POPULATION_SIZE = 200;      // Increased from 80 (paper: 200)
     public static final int MAX_GENERATIONS = 20;      // Training mode
     public static final double CROSSOVER_RATE = 1.00;    // Paper: 100% (crossover is main search)
-    public static final double MUTATION_RATE = 0.02;     // Paper: 2% (low mutation)
+    public static final double MUTATION_RATE = 0.18;     // Paper: 2% (low mutation)
     public static final double REPRODUCTION_RATE = 0.00; // No pure reproduction
     public static final int TOURNAMENT_SIZE = 7;         // From paper
     public static final int ELITE_SIZE = 3;              // Time-limited mode
-    public static final int MIN_DEPTH = 4;              // Increased from 2 (paper: 4-6)
-    public static final int MAX_DEPTH = 10;             // Increased from 6 (paper: 8-12)
+    public static final int MIN_DEPTH = 2;              // Increased from 2 (paper: 4-6)
+    public static final int MAX_DEPTH = 6;             // Increased from 6 (paper: 8-12)
     public static final int FUNCTION_ARITY_2 = 4;         // +, -, *, %
     public static final int FUNCTION_ARITY_1 = 1;         // FI
-    public static final int TERMINAL_COUNT = 13;           // S, E, L, MIN, MAX, AVE, FE, FL, FXE, FXL + BN, FR, P
+    public static final int FUNCTION_ARITY_3 = 1;         // ITE (ternary)
+    // Conditional functions
+    public static final int FUNCTION_IFL = 1;             // IFL (binary)
+    // 15 terminals: S, E, L, MIN, MAX, AVE, FE, FL, FXE, FXL (10 from Burke 2010)
+    //             + BN, FR, P (3 short-term)
+    //             + NB (bin lower bound — Quesada et al. 2025)
+    //             + EphemeralConstant (Jin et al. 2024)
+    public static final int TERMINAL_COUNT = 15;
+    // Ephemeral constant values (Jin et al. 2024)
+    public static final double[] EPHEMERAL_CONSTANTS = {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0};
     // Parsimony pressure: penalize larger trees to encourage simpler heuristics
     // Value represents fitness penalty per node (e.g., 0.01 means 1% fitness penalty per 100 nodes)
     public static final double SIZE_PENALTY = 0.02;     // Moderate penalty to control bloat
@@ -144,11 +153,10 @@ public class GeneticProgramming {
      */
     @SuppressWarnings("unchecked")
     public Heuristic evolveFull(List<BPPInstance>[] trainingByClass, double[] classWeights) {
-        final int FULL_POPULATION_SIZE = POPULATION_SIZE;  // 200, aligned with Jin et al. 2024
+        final int FULL_POPULATION_SIZE = POPULATION_SIZE;  // 200
         final int FULL_MAX_GENERATIONS = MAX_GENERATIONS;  // 40
-        final int FULL_ELITE_SIZE = ELITE_SIZE;            // 3, aligned with global setting
+        final int FULL_ELITE_SIZE = ELITE_SIZE;            // 3
         final int INSTANCES_PER_CLASS = 5;                 // All 20 instances (5 per class)
-        // Crossover/mutation use global constants: CROSSOVER_RATE=1.0, MUTATION_RATE=0.02 (Jin et al. 2024)
 
         System.out.println("Starting class-aware evolution (pop=" + FULL_POPULATION_SIZE +
                          ", gen=" + FULL_MAX_GENERATIONS +
@@ -175,12 +183,29 @@ public class GeneticProgramming {
 
         Individual bestOverall = null;
 
+        // Pre-generate per-generation training instance indices ONCE per generation.
+        // All individuals in the same generation evaluate the SAME instances.
+        @SuppressWarnings("unchecked")
+        List<Integer>[] genIndices = new List[trainingByClass.length];
+
         // Evolution loop
         for (int gen = 0; gen < FULL_MAX_GENERATIONS; gen++) {
-            // Evaluate fitness for all individuals (class-aware with optional weights)
+            // Generate fixed shuffled indices for this generation (shared by all individuals)
+            for (int c = 0; c < trainingByClass.length; c++) {
+                if (trainingByClass[c].isEmpty()) {
+                    genIndices[c] = new ArrayList<>();
+                    continue;
+                }
+                List<Integer> idx = new ArrayList<>();
+                for (int i = 0; i < trainingByClass[c].size(); i++) idx.add(i);
+                Collections.shuffle(idx, rand);
+                genIndices[c] = idx;
+            }
+
+            // Evaluate fitness for all individuals (same instances for all)
             for (Individual ind : population.getIndividuals()) {
                 double fitness = evaluateClassAwareFitnessRelative(
-                    ind.getHeuristic(), trainingByClass, INSTANCES_PER_CLASS, classWeights);
+                    ind.getHeuristic(), trainingByClass, INSTANCES_PER_CLASS, classWeights, genIndices);
                 ind.setFitness(fitness);
             }
 
@@ -357,9 +382,15 @@ public class GeneticProgramming {
      * Evaluates instances per class, computes per-class avg deviation, then averages across classes.
      * High S.D. classes (2-3) get 1.5x weight to ensure better coverage of harder problem types.
      * Tree size is penalized to encourage simpler heuristics.
+     *
+     * FIX 2026-05-09: Shuffles once per generation-shared seed, then reuses those indices
+     * for all individuals. Previously, each fitness evaluation advanced the shared Random
+     * state, causing different individuals to see different shuffled subsets within the same
+     * generation — making tournament selection unreliable and fitness landscapes unstable.
      */
     private double evaluateClassAwareFitnessRelative(Heuristic h, List<BPPInstance>[] trainingByClass,
-                                         int instancesPerClass, double[] classWeights) {
+                                        int instancesPerClass, double[] classWeights,
+                                        List<Integer>[] fixedIndices) {
         int numClasses = trainingByClass.length;
         double totalWeightedAvg = 0.0;
         double totalWeight = 0.0;
@@ -371,15 +402,14 @@ public class GeneticProgramming {
             int sampleSize = Math.min(instancesPerClass, classInstances.size());
             double classSum = 0.0;
 
-            List<Integer> indices = new ArrayList<>();
-            for (int i = 0; i < classInstances.size(); i++) indices.add(i);
-            Collections.shuffle(indices, rand);
-
+            List<Integer> indices = fixedIndices != null ? fixedIndices[c] : null;
             for (int i = 0; i < sampleSize; i++) {
-                BPPInstance instance = classInstances.get(indices.get(i));
+                int idx = (indices != null && i < indices.size()) ? indices.get(i) : (i % classInstances.size());
+                BPPInstance instance = classInstances.get(idx);
                 BPPSolver solver = new BPPSolver();
                 Solution solution = solver.solve(instance, h);
                 double l2Bound = instance.getVerifiedL2Bound();
+                if (l2Bound <= 0) l2Bound = L2BoundCalculator.calculate(instance);
                 double deviation = ((double) solution.getBinCount() - l2Bound) / l2Bound * 100.0;
                 classSum += deviation;
             }
@@ -400,6 +430,26 @@ public class GeneticProgramming {
         }
 
         return fitness;
+    }
+
+    /**
+     * Overload for backward compatibility — generates fresh shuffled indices each call.
+     * WARNING: This is the OLD buggy behavior; use the overload with fixedIndices instead.
+     */
+    private double evaluateClassAwareFitnessRelative(Heuristic h, List<BPPInstance>[] trainingByClass,
+                                        int instancesPerClass, double[] classWeights) {
+        // Compute indices once per call (expensive but correct)
+        @SuppressWarnings("unchecked")
+        List<Integer>[] fixed = new List[trainingByClass.length];
+        for (int c = 0; c < trainingByClass.length; c++) {
+            if (trainingByClass[c].isEmpty()) continue;
+            int sz = trainingByClass[c].size();
+            List<Integer> idx = new ArrayList<>();
+            for (int i = 0; i < sz; i++) idx.add(i);
+            Collections.shuffle(idx, rand);
+            fixed[c] = idx;
+        }
+        return evaluateClassAwareFitnessRelative(h, trainingByClass, instancesPerClass, classWeights, fixed);
     }
 
     /**
@@ -508,16 +558,23 @@ public class GeneticProgramming {
         } else {
             // Function
             GPNode func = createRandomFunction();
-            int childDepth = targetDepth - 1;
-            
+
             if (func instanceof FIFunction) {
                 // FI has arity 1
-                GPNode child = createTree(childDepth, minDepth, maxDepth);
+                GPNode child = createTree(targetDepth - 1, minDepth, maxDepth);
                 func.addChild(child);
+            } else if (func instanceof ITENode) {
+                // ITE has arity 3
+                GPNode cond = createTree(targetDepth - 1, minDepth, maxDepth);
+                GPNode thenBranch = createTree(targetDepth - 1, minDepth, maxDepth);
+                GPNode elseBranch = createTree(targetDepth - 1, minDepth, maxDepth);
+                func.addChild(cond);
+                func.addChild(thenBranch);
+                func.addChild(elseBranch);
             } else {
-                // Binary functions
-                GPNode left = createTree(childDepth, minDepth, maxDepth);
-                GPNode right = createTree(childDepth, minDepth, maxDepth);
+                // Binary functions: +, -, *, /, IFL
+                GPNode left = createTree(targetDepth - 1, minDepth, maxDepth);
+                GPNode right = createTree(targetDepth - 1, minDepth, maxDepth);
                 func.addChild(left);
                 func.addChild(right);
             }
@@ -529,20 +586,22 @@ public class GeneticProgramming {
      * Create a random function node.
      */
     public GPNode createRandomFunction() {
-        int type = rand.nextInt(functionArity2Count + 1);  // +1 for FI
+        int type = rand.nextInt(7);  // 0-3: arity-2, 4: arity-1, 5: arity-2 (IFL), 6: arity-3 (ITE)
         switch (type) {
             case 0: return new AddNode();
             case 1: return new SubtractNode();
             case 2: return new MultiplyNode();
             case 3: return new DivideNode();
             case 4: return new FIFunction();
+            case 5: return new IFLNode();
+            case 6: return new ITENode();
             default: return new AddNode();
         }
     }
     
     /**
      * Create a random terminal node.
-     * Includes both memory terminals and short-term terminals.
+     * Includes both memory terminals, short-term terminals, and literature-based terminals.
      */
     public GPNode createRandomTerminal() {
         int type = rand.nextInt(terminalCount);
@@ -550,16 +609,21 @@ public class GeneticProgramming {
             case 0: return new PieceSizeTerminal();        // S
             case 1: return new BinEmptinessTerminal();     // E
             case 2: return new SpaceLeftTerminal();        // L
-            case 3: return new MemoryMinTerminal();       // MIN
+            case 3: return new MemoryMinTerminal();        // MIN
             case 4: return new MemoryMaxTerminal();        // MAX
-            case 5: return new MemoryAveTerminal();        // AVE
-            case 6: return new MemoryFETerminal();       // FE
-            case 7: return new MemoryFLTerminal();        // FL
-            case 8: return new MemoryFXETerminal();      // FXE
-            case 9: return new MemoryFXLTerminal();       // FXL
+            case 5: return new MemoryAveTerminal();       // AVE
+            case 6: return new MemoryFETerminal();         // FE
+            case 7: return new MemoryFLTerminal();          // FL
+            case 8: return new MemoryFXETerminal();        // FXE
+            case 9: return new MemoryFXLTerminal();        // FXL
             case 10: return new BinCountTerminal();        // BN (short-term)
-            case 11: return new FullnessRatioTerminal();  // FR (short-term)
+            case 11: return new FullnessRatioTerminal();   // FR (short-term)
             case 12: return new ProgressTerminal();        // P (short-term)
+            case 13: return new BinLowerBoundTerminal();    // NB (Quesada 2025)
+            case 14: {                                     // Ephemeral constant (Jin 2024)
+                double val = EPHEMERAL_CONSTANTS[rand.nextInt(EPHEMERAL_CONSTANTS.length)];
+                return new EphemeralConstantTerminal(val);
+            }
             default: return new PieceSizeTerminal();
         }
     }

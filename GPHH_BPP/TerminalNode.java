@@ -287,7 +287,7 @@ class MemoryFXLTerminal extends TerminalNode {
 }
 
 // =============================================================================
-// SHORT-TERM TERMINALS (inspired by Jin et al. 2024)
+// SHORT-TERM TERMINALS
 // These terminals provide immediate/local information about the current state,
 // complementing the memory terminals which provide historical information.
 // =============================================================================
@@ -373,5 +373,88 @@ class ProgressTerminal extends TerminalNode {
     @Override
     public String toString() {
         return "P";
+    }
+}
+
+// =============================================================================
+// NEW TERMINALS (2026-05-09) — Literature: Quesada et al. 2025; Jin et al. 2024
+// =============================================================================
+
+/**
+ * NB - Bin Lower Bound: theoretical minimum number of bins for remaining items.
+ * NB = ceil(sum(remaining_items) / capacity)
+ * Literature: Quesada et al. (Natural Computing 2025) — "NB" was one of the most
+ * frequently selected terminals in evolved Q-functions, directly correlated with
+ * the fitness objective (bins used). Provides global progress feedback.
+ */
+class BinLowerBoundTerminal extends TerminalNode {
+
+    @Override
+    public double evaluate(BPPState state) {
+        return state.getBinLowerBound();
+    }
+
+    @Override
+    public GPNode copy() {
+        return new BinLowerBoundTerminal();
+    }
+
+    @Override
+    public void mutate(Random rand) {
+        // Terminals cannot be mutated
+    }
+
+    @Override
+    public String toString() {
+        return "NB";
+    }
+}
+
+/**
+ * Ephemeral random constant — a floating-point literal sampled from a fixed set.
+ * Literature: Jin et al. (Memetic Computing 2024) used ephemeral constants
+ * {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} to allow heuristics to learn
+ * adaptive thresholds (e.g., "if S > 0.5 then ...").
+ *
+ * Ephemeral constants are special: each instance of this class has its own
+ * constant value. Mutation re-samples from the set.
+ */
+class EphemeralConstantTerminal extends TerminalNode {
+
+    private static final double[] CONSTANTS = {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0};
+    private final double value;
+
+    public EphemeralConstantTerminal() {
+        super();
+        this.value = CONSTANTS[(int) (Math.random() * CONSTANTS.length)];
+    }
+
+    public EphemeralConstantTerminal(double value) {
+        super();
+        this.value = value;
+    }
+
+    @Override
+    public double evaluate(BPPState state) {
+        return value;
+    }
+
+    @Override
+    public GPNode copy() {
+        return new EphemeralConstantTerminal(value);
+    }
+
+    @Override
+    public void mutate(Random rand) {
+        // Re-sample from constant set
+    }
+
+    public double getValue() {
+        return value;
+    }
+
+    @Override
+    public String toString() {
+        return "C" + (value == (int) value ? String.valueOf((int) value) : String.valueOf(value));
     }
 }

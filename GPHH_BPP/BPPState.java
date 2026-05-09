@@ -166,6 +166,21 @@ public class BPPState {
         return (double) (currentPosition + 1) / items.length;
     }
 
+    /**
+     * Get the bin lower bound for remaining items (NB terminal).
+     * NB = ceil(sum of all remaining item sizes / bin capacity).
+     * This is the theoretical minimum number of bins needed for remaining items,
+     * providing the GP with a global progress indicator toward optimality.
+     * @return Theoretical minimum bin count for remaining items
+     */
+    public double getBinLowerBound() {
+        double totalRemaining = 0;
+        for (int i = currentPosition; i < items.length; i++) {
+            totalRemaining += items[i];
+        }
+        return Math.ceil(totalRemaining / binCapacity);
+    }
+
     // Setters for BPPSolver
     
     public void setCurrentPosition(int currentPosition) {

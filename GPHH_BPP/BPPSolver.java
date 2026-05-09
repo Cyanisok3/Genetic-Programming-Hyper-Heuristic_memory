@@ -3,27 +3,12 @@ import java.util.List;
 
 /**
  * Solver that applies a GP heuristic to solve a BPP instance.
- * 
- * This is an ONLINE BPP solver - items are processed in their original input order
- * without any global sorting. This follows the paper's approach and CW requirements.
- * 
- * Reference: Burke et al. 2010 - "There is no global sorting of items"
- * 
- * Two-stage decision model (inspired by Jin et al. 2024):
- * - Stage 1 (coarse filtering): Fast elimination of unpromising bins using simple rules.
- *   Rule 1: Skip bins where the item does not fit.
- *   Rule 2: Skip bins where remaining space > pieceSize + THRESHOLD (too loose).
- *   Rule 3: If more than MAX_CANDIDATES remain, keep only the N with smallest remaining space.
- * - Stage 2 (fine scoring): Evaluate GP heuristic on the filtered candidate set.
- *   This mirrors the two-stage rollout decision model from Jin et al. 2024, adapted for BPP.
- * 
- * Reference: Jin et al. 2024, Memetic Computing - "two-stage adaptive rollout decision model"
+ * Items are processed in their original input order (online BPP).
+ * For each item, the GP heuristic is evaluated on each feasible bin,
+ * and the item is placed in the bin with the highest heuristic score.
+ * A new bin is opened if no existing bin can fit the item.
  */
 public class BPPSolver {
-    
-    // Stage 1 filter parameters (inspired by Jin et al. 2024 Section 4.1-4.2)
-    private static final int THRESHOLD = 20;       // Max extra space beyond pieceSize
-    private static final int MAX_CANDIDATES = 3;  // Keep top N bins after filtering
     
     /**
      * Solve a BPP instance using the given heuristic.
@@ -58,39 +43,23 @@ public class BPPSolver {
         for (int itemIdx = 0; itemIdx < itemCount; itemIdx++) {
             int pieceSize = items[itemIdx];
 
-            // Stage 1: Coarse filtering (0 computation cost)
-            List<int[]> candidates = new ArrayList<>();
-            for (int binIdx = 0; binIdx < bins.size(); binIdx++) {
-                Bin bin = bins.get(binIdx);
-                int remainingSpace = bin.getEmptiness() - pieceSize;
-                // Rule 1: must fit
-                if (remainingSpace < 0) continue;
-                // Rule 2: skip bins that are too loose (remaining space >> piece size)
-                if (remainingSpace > pieceSize + THRESHOLD) continue;
-                // Keep [binIdx, remainingSpace] as candidate
-                candidates.add(new int[]{binIdx, remainingSpace});
-            }
-
-            // Stage 2: Fine scoring with GP heuristic
+            // Evaluate GP heuristic on each existing bin to find the best one
             int bestBinIdx = -1;
             double bestScore = Double.NEGATIVE_INFINITY;
             int bestRemainingSpace = Integer.MAX_VALUE;
 
-            // Rule 3: if too many candidates, keep only the tightest N
-            if (candidates.size() > MAX_CANDIDATES) {
-                candidates.sort((a, b) -> Integer.compare(a[1], b[1]));
-                candidates = new ArrayList<>(candidates.subList(0, MAX_CANDIDATES));
-            }
-
-            // Evaluate GP heuristic on each candidate bin
-            for (int[] cand : candidates) {
-                int binIdx = cand[0];
-                int remainingSpace = cand[1];
+            for (int binIdx = 0; binIdx < bins.size(); binIdx++) {
                 Bin bin = bins.get(binIdx);
+                int remainingSpace = bin.getEmptiness() - pieceSize;
+
+                // Skip bins where the item does not fit
+                if (remainingSpace < 0) continue;
+
+                // Evaluate heuristic on this candidate
                 BPPState state = createState(items, itemIdx, bin, memory, bins.size());
                 double score = heuristic.evaluate(state);
 
-                // Best Fit Decreasing tiebreaker: prefer bins with less remaining space
+                // Best Fit tiebreaker: prefer bins with less remaining space
                 if (score > bestScore ||
                     (Math.abs(score - bestScore) < 1e-6 && remainingSpace < bestRemainingSpace)) {
                     bestScore = score;
@@ -119,21 +88,11 @@ public class BPPSolver {
      * Create a BPPState for evaluating placement of item at index in a specific bin.
      */
     private BPPState createState(int[] items, int itemIdx, Bin bin, Memory memory, int binCount) {
-        // Create base state
         BPPState state = new BPPState(items, bin.getCapacity());
-
-        // Set the state to reflect BEFORE placing the item
-        // currentPosition = itemIdx (we're evaluating the item at this index)
-        // binFullness = current bin's fullness (before adding this item)
         state.setCurrentPosition(itemIdx);
         state.setBinFullness(bin.getFullness());
-
-        // Copy memory
         state.setMemory(memory.copy());
-
-        // Set bin count for short-term terminals
         state.setBinCount(binCount);
-
         return state;
     }
 }

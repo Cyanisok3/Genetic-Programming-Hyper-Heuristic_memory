@@ -29,7 +29,7 @@ public class Main {
     private static final int NUM_CLASSES = 4;
 
     // Class-aware training weights per Burke et al. 2010 (uniform weights)
-    public static final double[] CLASS_WEIGHTS = {1.0, 1.0, 1.0, 1.0};
+    public static final double[] CLASS_WEIGHTS = {1.0, 1.0};
 
     public static void main(String[] args) {
         // Check for training mode first
@@ -58,18 +58,11 @@ public class Main {
             System.out.println("Warning: L2 bounds CSV not found, will use computed L2 bounds.");
         }
 
-        System.out.println("Loading training set by class...");
-        List<BPPInstance>[] trainingByClass = loadTrainingSetByClass("dualdistribution/train");
-        int totalInstances = 0;
-        for (int c = 0; c < NUM_CLASSES; c++) {
-            int count = trainingByClass[c].size();
-            totalInstances += count;
-            String className = getClassName(c);
-            System.out.println("  Class " + c + " (" + className + "): " + count + " instances");
-        }
-        System.out.println("Total: " + totalInstances + " training instances");
+        System.out.println("Loading training set...");
+        List<BPPInstance> trainingSet = loadTrainingSet("dualdistribution/train");
+        System.out.println("Training instances: " + trainingSet.size());
 
-        if (totalInstances == 0) {
+        if (trainingSet.isEmpty()) {
             System.err.println("Error: No training instances found.");
             System.exit(1);
         }
@@ -78,7 +71,7 @@ public class Main {
         long startTime = System.currentTimeMillis();
 
         GeneticProgramming gp = new GeneticProgramming();
-        Heuristic best = gp.evolveFull(trainingByClass, CLASS_WEIGHTS);
+        Heuristic best = gp.evolveFull(trainingSet);
 
         long elapsed = System.currentTimeMillis() - startTime;
         System.out.println("Evolution completed in " + elapsed + "ms (" + (elapsed / 1000.0) + "s)");
@@ -104,39 +97,20 @@ public class Main {
      *   train/
      *     class1/ -> class 0 (high-mean, low-SD, unimodal)
      *     class2/ -> class 1 (low-mean, low-SD, unimodal)
-     *     class3/ -> class 2 (high-mean, high-SD; includes bimodal instances)
-     *     class4/ -> class 3 (low-mean, high-SD; includes bimodal instances)
-     *
-     * Per Burke et al. 2010, Section 5.1: 5 instances per class, 4 classes, 20 original.
-     * class3 and class4 also contain 5 generated bimodal instances each (2026-05-09),
-     * bringing total training instances to 30 (10 per bimodal class).
-     *
-     * The bimodal instances (binpack_gen_bimodal_*.txt) model the dual-peak item-size
-     * distributions found in testdual4 and testdual8, enabling the GP to learn heuristics
-     * that perform well on both unimodal and bimodal test instances.
+     * Per Burke et al. 2010, Section 5.1: 5 instances per class, 2 classes, 10 total.
      */
-    @SuppressWarnings("unchecked")
-    private static List<BPPInstance>[] loadTrainingSetByClass(String baseDir) {
-        List<BPPInstance>[] trainingByClass = new ArrayList[NUM_CLASSES];
-        for (int c = 0; c < NUM_CLASSES; c++) {
-            trainingByClass[c] = new ArrayList<>();
-        }
-
-        File base = new File(baseDir);
-        if (!base.exists() || !base.isDirectory()) {
-            System.err.println("Warning: Training directory not found: " + baseDir);
-            return trainingByClass;
-        }
+    private static List<BPPInstance> loadTrainingSet(String baseDir) {
+        List<BPPInstance> trainingSet = new ArrayList<>();
 
         for (int c = 1; c <= NUM_CLASSES; c++) {
-            File classDir = new File(base, "class" + c);
+            File classDir = new File(baseDir, "class" + c);
             if (classDir.exists() && classDir.isDirectory()) {
                 File[] files = classDir.listFiles((d, name) -> name.endsWith(".txt"));
                 if (files != null) {
                     for (File file : files) {
                         try {
                             BPPInstance instance = BPPInstance.load(file.getPath());
-                            trainingByClass[c - 1].add(instance);
+                            trainingSet.add(instance);
                         } catch (IOException e) {
                             System.err.println("Warning: Could not load " + file.getName());
                         }
@@ -145,20 +119,7 @@ public class Main {
             }
         }
 
-        return trainingByClass;
-    }
-
-    /**
-     * Get human-readable class name.
-     */
-    private static String getClassName(int cls) {
-        switch (cls) {
-            case 0: return "high-mean, low-SD";
-            case 1: return "low-mean, low-SD";
-            case 2: return "high-mean, high-SD";
-            case 3: return "low-mean, high-SD";
-            default: return "unknown";
-        }
+        return trainingSet;
     }
 
     /**

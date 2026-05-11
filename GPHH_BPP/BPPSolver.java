@@ -56,7 +56,7 @@ public class BPPSolver {
                 if (remainingSpace < 0) continue;
 
                 // Evaluate heuristic on this candidate
-                BPPState state = createState(items, itemIdx, bin, memory, bins.size());
+                BPPState state = createState(items, itemIdx, bin, memory);
                 double score = heuristic.evaluate(state);
 
                 // Best Fit tiebreaker: prefer bins with less remaining space
@@ -87,12 +87,11 @@ public class BPPSolver {
     /**
      * Create a BPPState for evaluating placement of item at index in a specific bin.
      */
-    private BPPState createState(int[] items, int itemIdx, Bin bin, Memory memory, int binCount) {
+    private BPPState createState(int[] items, int itemIdx, Bin bin, Memory memory) {
         BPPState state = new BPPState(items, bin.getCapacity());
         state.setCurrentPosition(itemIdx);
         state.setBinFullness(bin.getFullness());
         state.setMemory(memory.copy());
-        state.setBinCount(binCount);
         return state;
     }
 }

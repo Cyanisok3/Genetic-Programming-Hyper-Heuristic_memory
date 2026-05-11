@@ -4,12 +4,11 @@
  */
 public class BPPState {
 
-    private int[] items;           // All items in the instance
+    private final int[] items;           // All items in the instance
     private int currentPosition;    // Index of current item being placed (0-based)
     private int binFullness;        // Current bin's used space
-    private int binCapacity;        // Bin capacity (constant)
+    private final int binCapacity;        // Bin capacity (constant)
     private Memory memory;           // Memory of last 100 items
-    private int binCount;           // Number of bins currently in use (for short-term terminals)
 
     public BPPState(int[] items, int binCapacity) {
         this.items = items;
@@ -17,7 +16,6 @@ public class BPPState {
         this.currentPosition = 0;
         this.binFullness = 0;
         this.memory = new Memory();
-        this.binCount = 1;  // Start with one empty bin
     }
 
     public BPPState(BPPState other) {
@@ -26,7 +24,6 @@ public class BPPState {
         this.currentPosition = other.currentPosition;
         this.binFullness = other.binFullness;
         this.memory = other.memory.copy();
-        this.binCount = other.binCount;
     }
     
     /**
@@ -139,70 +136,18 @@ public class BPPState {
         return memory;
     }
 
-    /**
-     * Get the number of bins currently in use.
-     * Short-term terminal: tracks immediate bin usage.
-     * @return Number of bins
-     */
-    public int getBinCount() {
-        return binCount;
-    }
-
-    /**
-     * Get the current bin's fullness ratio (fullness / capacity).
-     * Short-term terminal: measures how full the current bin is.
-     * @return Fullness ratio (0.0 to 1.0)
-     */
-    public double getFullnessRatio() {
-        return (double) binFullness / binCapacity;
-    }
-
-    /**
-     * Get progress ratio (items processed / total items).
-     * Short-term terminal: indicates how far through the instance we are.
-     * @return Progress ratio (0.0 to 1.0)
-     */
-    public double getProgressRatio() {
-        return (double) (currentPosition + 1) / items.length;
-    }
-
-    /**
-     * Get the bin lower bound for remaining items (NB terminal).
-     * NB = ceil(sum of all remaining item sizes / bin capacity).
-     * This is the theoretical minimum number of bins needed for remaining items,
-     * providing the GP with a global progress indicator toward optimality.
-     * @return Theoretical minimum bin count for remaining items
-     */
-    public double getBinLowerBound() {
-        double totalRemaining = 0;
-        for (int i = currentPosition; i < items.length; i++) {
-            totalRemaining += items[i];
-        }
-        return Math.ceil(totalRemaining / binCapacity);
-    }
-
-    // Setters for BPPSolver
-    
-    public void setCurrentPosition(int currentPosition) {
-        this.currentPosition = currentPosition;
-    }
-    
-    public void setBinFullness(int fullness) {
-        this.binFullness = fullness;
-    }
-    
     public void setMemory(Memory memory) {
         this.memory = memory;
     }
 
-    public void setBinCount(int binCount) {
-        this.binCount = binCount;
+    public void setCurrentPosition(int currentPosition) {
+        this.currentPosition = currentPosition;
     }
 
-    public void incrementBinCount() {
-        this.binCount++;
+    public void setBinFullness(int fullness) {
+        this.binFullness = fullness;
     }
-    
+
     /**
      * Check if all items have been processed.
      * @return true if currentPosition >= items.length

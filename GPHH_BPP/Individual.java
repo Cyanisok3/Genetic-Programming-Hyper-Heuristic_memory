@@ -45,7 +45,19 @@ public class Individual implements Serializable {
     public void setFitness(double fitness) {
         this.fitness = fitness;
     }
-    
+
+    /**
+     * Lexicographic comparison: first by raw fitness, then by tree size (smaller wins).
+     * Used by tournament selection and population sorting to naturally discourage bloat
+     * without an alpha parameter.
+     * @return negative if this is better, positive if other is better
+     */
+    public int compareToLexicographic(Individual other) {
+        int fitnessCmp = Double.compare(this.fitness, other.fitness);
+        if (fitnessCmp != 0) return fitnessCmp;
+        return Integer.compare(this.getTree().getSize(), other.getTree().getSize());
+    }
+
     @Override
     public String toString() {
         return "Individual(fitness=" + String.format("%.6f", fitness) + ", tree=" + heuristic + ")";

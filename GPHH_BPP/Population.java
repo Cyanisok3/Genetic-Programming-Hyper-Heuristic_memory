@@ -37,7 +37,7 @@ public class Population implements Serializable {
         }
         Individual best = individuals.get(0);
         for (Individual ind : individuals) {
-            if (ind.getFitness() < best.getFitness()) {
+            if (ind.compareToLexicographic(best) < 0) {
                 best = ind;
             }
         }
@@ -98,7 +98,7 @@ public class Population implements Serializable {
      * Sort individuals by fitness (ascending).
      */
     public void sort() {
-        Collections.sort(individuals, (a, b) -> Double.compare(a.getFitness(), b.getFitness()));
+        Collections.sort(individuals, (a, b) -> a.compareToLexicographic(b));
     }
     
     /**

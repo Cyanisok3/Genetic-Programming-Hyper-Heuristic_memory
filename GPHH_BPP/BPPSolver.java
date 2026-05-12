@@ -13,7 +13,7 @@ public class BPPSolver {
     /**
      * Solve a BPP instance using the given heuristic.
      * Items are processed in their original order (online BPP).
-     * 
+     *
      * @param instance BPP instance to solve
      * @param heuristic GP heuristic to use
      * @return Solution

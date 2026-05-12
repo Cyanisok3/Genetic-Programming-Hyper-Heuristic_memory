@@ -2,7 +2,7 @@
 
 Genetic Programming Hyper-Heuristic for the online Bin Packing Problem, based on:
 
-> Burke, E. K., Hyde, M. R., Kendall, G., & Woodward, J. (2010). Providing a memory mechanism to enhance the evolutionary design of heuristics. *IEEE Symposium on Computational Intelligence in Scheduling*, 86-93.
+> Burke, E. K., Hyde, M. R., Kendall, G., & Woodward, J. (2010). *A genetic programming-based hyper-heuristic for the online two-dimensional bin packing problem.* IEEE Symposium on Computational Intelligence in Scheduling, 86-93.
 
 ## Execution
 
@@ -17,23 +17,51 @@ java -cp out Main --train
 java -cp out Main -s dualdistribution/test/testdual0/binpack0.txt -o solution.txt -t 10000
 ```
 
+---
+
+## Algorithm Overview
+
+### Standard GP with Memory (Burke et al. 2010)
+
+The GP evolves a **tree-structured heuristic** that, at each step, scores every feasible bin and selects the highest-scored one. The novelty over plain GP is the **Memory** mechanism: the last 100 placed pieces are stored, and terminal nodes can read statistical summaries of that history (MIN, MAX, AVE, FE, FL, FXE, FXL). This lets the heuristic adapt its behavior based on the observed piece-size distribution.
+
+### This Implementation: Deviations from Burke 2010
+
+This implementation differs from the original paper in several ways. These deviations are documented here so the gap between the standard approach and this code is transparent.
+
+1. **Training set** — Burke 2010 trains on 10 instances (5 × class1 + 5 × class2). This implementation trains on ~20 instances (5 × class1 + 5 × class2 + 5 × class3 + 5 × class4), covering all four dual-distribution classes.
+
+2. **Fitness evaluation order** — Each generation, all individuals are evaluated on all training instances in natural (file-system) order. No shuffling of instances or items occurs anywhere during training or evaluation.
+
+3. **Parallel fitness evaluation** — All individuals' fitnesses are evaluated in parallel using `ForkJoinPool.commonPool()`. Burke 2010's original evaluation is sequential.
+
+4. **Tree size control** — This implementation uses **lexicographic tournament selection**: fitness is the primary comparison key; tree size only matters when fitness ties. `TREE_PENALTY_ALPHA` is hardcoded to 0.0.
+
+5. **Test mode** runs the single evolved heuristic within a 10s time limit. No shuffle sampling is applied during evaluation.
+
+---
+
 ## Terminal Set (11 terminals)
 
 | # | Symbol | Description |
 |---|--------|-------------|
 | 0 | S | Current piece size |
-| 1 | E | Bin emptiness (capacity - fullness) |
-| 2 | L | Space left after placing (E - S) |
+| 1 | E | Bin emptiness (capacity − fullness) |
+| 2 | L | Space left after placing (E − S) |
 | 3 | MIN | Minimum piece size in memory |
 | 4 | MAX | Maximum piece size in memory |
 | 5 | AVE | Average piece size in memory |
 | 6 | FE | Fraction of memory pieces fitting into E |
 | 7 | FL | Fraction of memory pieces fitting into L |
-| 8 | FXE | Fraction of memory pieces with gap <= 3 into E |
-| 9 | FXL | Fraction of memory pieces with gap <= 3 into L |
-| 10 | C | Ephemeral constant {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} |
+| 8 | FXE | Fraction of memory pieces with gap ≤ 3 into E (gap = E − size, 0 < gap ≤ 3) |
+| 9 | FXL | Fraction of memory pieces with gap ≤ 3 into L (gap = L − size, 0 < gap ≤ 3) |
+| 10 | C | Ephemeral constant, one of {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} |
 
-## Function Set (5 functions)
+> **Note:** FXE and FXL use a **hardcoded threshold of 3** for the gap. This value is not exposed as a parameter.
+
+---
+
+## Function Set (6 functions)
 
 | Symbol | Arity | Description |
 |--------|-------|-------------|
@@ -41,27 +69,160 @@ java -cp out Main -s dualdistribution/test/testdual0/binpack0.txt -o solution.tx
 | - | 2 | Subtraction |
 | * | 2 | Multiplication |
 | % | 2 | Protected division (returns 1 if divisor = 0) |
-| FI | 1 | Fraction of memory items below threshold |
+| FI | 1 | Fraction of memory items below threshold (proportionBelow) |
+| IFL | 4 | If-Less-Than: if a < b then c else d |
+
+---
 
 ## Memory Mechanism
 
-Tracks the last 100 placed items. Enables heuristics to learn from the piece size distribution during packing.
+Tracks the **last 100 placed items** (FIFO queue). Enables terminals MIN, MAX, AVE, FE, FL, FXE, FXL to compute statistics over recent pieces.
+
+- **Per-solve isolation**: each call to `BPPSolver.solveWithOrder()` creates a fresh `Memory` instance. Memory does not persist across training instance evaluations.
+
+---
 
 ## GP Parameters
 
-| Parameter | Value |
-|-----------|-------|
-| Population Size | 200 |
-| Max Generations | 20 |
-| Crossover Rate | 85% |
-| Mutation Rate | 2% |
-| Tournament Size | 7 |
-| Min Tree Depth | 4 |
-| Max Tree Depth | 6 |
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Population Size | 200 | |
+| Max Generations | 30 | |
+| Crossover Rate | 85% | Probability of selecting crossover; if selected, mutation may still apply (10%) |
+| Mutation Rate | 10% | Applied after crossover with 10% probability, or standalone with 10% probability |
+| Reproduction Rate | 5% | Probability of direct copy (no crossover, no mutation) |
+| Tournament Size | 7 | |
+| Elite Size | 2 | Top-2 individuals copied unchanged into next generation |
+| Min Tree Depth | 4 | Ramped half-and-half lower bound |
+| Max Tree Depth | 6 | Hard upper bound; nodes at depth ≥ MAX_DEPTH are excluded from crossover/mutation |
+| Terminal Count | 11 | |
+| Tree Penalty Alpha | 0.0 | No additive size penalty; lexicographic selection handles bloat |
+| Ephemeral Constants | {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} | Jin et al. (Memetic Computing 2024) |
+
+---
 
 ## Fitness Function
 
-Average of `bins_used / L2_bound` across all training instances. L2 bound = max(ceil(sum(items)/C), count(items > C/2)).
+Average of `bins_used / L2_bound` across all training instances. Lower is better.
+
+L2 bound = max(ceil(sum(items)/C), count(items > C/2)) — Martello & Toth (1990) lower bound.
+
+---
+
+## Phase 1 Changes
+
+### 1.1 FI Depth Explosion Fix
+- `crossover()` and `mutate()` now use `collectValidNodes()` instead of `getAllNodes()`
+- A node is only eligible if its depth < MAX_DEPTH (depth 0 = root)
+- `mutate()` additionally computes remaining depth budget and caps new subtree at `min(roomLeft-1, MAX_DEPTH/2)`
+
+### 1.2 Tree Size Control (Lexicographic Selection)
+- Standard GP adds `alpha * treeSize` to fitness (additive penalty) — alpha is sensitive and hard to tune
+- Instead: lexicographic comparison in tournament selection, population sort, and best tracking
+- Primary: raw fitness (lower = better). Tie-break: tree size (smaller = better)
+- Tree size only matters when fitness is already equal — no alpha parameter needed
+- Naturally prefers compact trees without aggressive penalty that causes premature convergence
+- `TREE_PENALTY_ALPHA` is hardcoded to 0.0
+- Applied to: `tournamentSelect()`, `Population.sort()`, `Population.getBest()`, best-overall comparison in `evolveFull()`
+
+### 1.3 IFL Conditional Function
+- Added `IfLessThanNode` (arity 4): `if a < b then c else d`
+- Updated `createRandomFunction()` to include IFL (6 function types)
+- Updated `createTree()` to handle IFL arity 4
+- Added static `createRandomTreeStatic()` factory for use in node-level mutation
+
+### 1.4 Depth Constraint in Mutation
+- `mutate()` picks from depth-constrained node pool (`collectValidNodes`)
+- New mutation subtree depth capped at `max(2, min(roomLeft-1, MAX_DEPTH/2))`
+- Ephemeral constant terminals: when selected for mutation, replaced with another constant from the set
+
+### 1.5 Training Instance Set
+- Burke 2010: 10 instances (5 per class, class1 + class2)
+- This implementation: ~20 instances (5 per class, class1 + class2 + class3 + class4)
+- All 4 dual-distribution classes used to increase training coverage
+
+---
+
+## Training Data Statistics
+
+Items per instance: 500. Distribution modality detected via KDE with Silverman bandwidth.
+
+| File | Items | Mean | S.D. | Modality |
+|-----|------:|-----:|-----:|----------|
+| binpack0 | 500 | 49.98 | 5.07 | Bimodal |
+| binpack1 | 500 | 50.30 | 4.98 | Unimodal |
+| binpack2 | 500 | 49.81 | 4.82 | Unimodal |
+| binpack3 | 500 | 50.09 | 5.03 | Unimodal |
+| binpack4 | 500 | 50.16 | 5.20 | Unimodal |
+| **class1 avg** | **2500** | **50.07** | **5.02** | — |
+
+| binpack5 | 500 | 33.16 | 4.77 | Unimodal |
+| binpack6 | 500 | 33.20 | 5.02 | Unimodal |
+| binpack7 | 500 | 33.18 | 5.21 | Unimodal |
+| binpack8 | 500 | 32.67 | 4.83 | Unimodal |
+| binpack9 | 500 | 32.86 | 4.97 | Bimodal |
+| **class2 avg** | **2500** | **33.01** | **4.96** | — |
+
+| binpack10 | 500 | 49.98 | 9.84 | Unimodal |
+| binpack11 | 500 | 50.38 | 9.85 | Unimodal |
+| binpack12 | 500 | 49.72 | 10.39 | Unimodal |
+| binpack13 | 500 | 51.03 | 10.08 | Unimodal |
+| binpack14 | 500 | 50.49 | 9.84 | Unimodal |
+| **class3 avg** | **2500** | **50.32** | **10.00** | — |
+
+| binpack15 | 500 | 33.54 | 10.05 | Unimodal |
+| binpack16 | 500 | 33.02 | 10.37 | Unimodal |
+| binpack17 | 500 | 32.96 | 9.79 | Unimodal |
+| binpack18 | 500 | 32.23 | 9.84 | Unimodal |
+| binpack19 | 500 | 32.69 | 9.70 | Unimodal |
+| **class4 avg** | **2500** | **32.89** | **9.95** | — |
+
+### Training Data Summary
+
+| Class | Distribution | Mean | S.D. | Items |
+|-------|-------------|-----:|-----:|------:|
+| class1 | Unimodal Gaussian | 50.07 | 5.02 | 2500 |
+| class2 | Unimodal Gaussian | 33.01 | 4.96 | 2500 |
+| class3 | Unimodal Gaussian | 50.32 | 10.00 | 2500 |
+| class4 | Unimodal Gaussian | 32.89 | 9.95 | 2500 |
+
+Note: class1 and class3 share the same mean (~50) but differ in variance (S.D. 5 vs 10); class2 and class4 share the same mean (~33) but differ in variance (S.D. 5 vs 10). Two instances (binpack0, binpack9) showed marginal bimodality in the KDE — likely noise from finite sample size.
+
+---
+
+## Test Data Statistics
+
+Items per instance: 5000. Each testdual contains 20 instances (binpack0–binpack19).
+
+| File | Items | Mean | S.D. | Modality |
+|-----|------:|-----:|-----:|----------|
+| **testdual1** | 5000 each | 32.99 | 4.99 | Mostly Unimodal |
+| **testdual2** | 5000 each | 50.01 | 10.00 | Mostly Unimodal |
+| **testdual3** | 5000 each | 33.01 | 10.02 | Unimodal |
+| **testdual4** | 5000 each | 42.47 | 9.01 | Bimodal |
+| **testdual5** | 5000 each | 39.99 | 11.19 | Bimodal |
+| **testdual6** | 5000 each | 37.52 | 13.47 | Unimodal (shoulder) |
+| **testdual7** | 5000 each | 35.09 | 15.79 | Unimodal (shoulder) |
+| **testdual8** | 5000 each | 42.50 | 10.89 | Unimodal |
+| **testdual9** | 5000 each | 40.05 | 12.78 | Bimodal |
+
+### Test Data Summary
+
+| Dataset | Distribution | Mean | S.D. | Total Items |
+|---------|-------------|-----:|-----:|------------:|
+| testdual1 | Unimodal Gaussian | 32.99 | 4.99 | 100000 |
+| testdual2 | Unimodal Gaussian | 50.01 | 10.00 | 100000 |
+| testdual3 | Unimodal Gaussian | 33.01 | 10.02 | 100000 |
+| testdual4 | Bimodal Gaussian | 42.47 | 9.01 | 100000 |
+| testdual5 | Bimodal Gaussian | 39.99 | 11.19 | 100000 |
+| testdual6 | Unimodal (wide) | 37.52 | 13.47 | 100000 |
+| testdual7 | Unimodal (wide) | 35.09 | 15.79 | 100000 |
+| testdual8 | Unimodal Gaussian | 42.50 | 10.89 | 100000 |
+| testdual9 | Bimodal Gaussian | 40.05 | 12.78 | 100000 |
+
+Note: "Unimodal (shoulder)" indicates a wide, flat distribution where the KDE shows a primary peak with a slight shoulder — interpret as **Unimodal Gaussian** with high variance. The bimodal sets (testdual4/5/9) are mixtures of two Gaussians, consistent with the dual-distribution naming.
+
+---
 
 ## File Structure
 
@@ -73,14 +234,14 @@ GPHH_BPP/
 ├── BPPState.java           # State for heuristic evaluation
 ├── Bin.java                # Bin representation
 ├── Solution.java           # Solution representation
-├── Memory.java             # Memory mechanism (last 100 items)
+├── Memory.java             # Memory mechanism (last 100 items, FIFO)
 ├── L2BoundCalculator.java  # L2 lower bound (Martello & Toth 1990)
 ├── GeneticProgramming.java # GP evolution engine
 ├── GPNode.java             # Abstract GP tree node
-├── FunctionNode.java       # Function nodes (+, -, *, %, FI)
+├── FunctionNode.java       # Function nodes (+, -, *, %, FI, IFL)
 ├── TerminalNode.java       # Terminal nodes (11 types above)
 ├── Heuristic.java         # Heuristic wrapper for GP tree
-├── Individual.java         # GP individual (tree + fitness)
+├── Individual.java         # GP individual (tree + fitness + lexicographic comparison)
 ├── Population.java        # GP population
 ├── DeserializeHeuristic.java  # Utility to inspect saved heuristics
 └── best_heuristic.ser     # Trained heuristic (generated by --train)

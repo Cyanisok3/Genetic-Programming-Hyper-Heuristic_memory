@@ -194,33 +194,13 @@ Note: class1 and class3 share the same mean (~50) but differ in variance (S.D. 5
 
 Items per instance: 5000. Each testdual contains 20 instances (binpack0–binpack19).
 
-| File | Items | Mean | S.D. | Modality |
-|-----|------:|-----:|-----:|----------|
-| **testdual1** | 5000 each | 32.99 | 4.99 | Mostly Unimodal |
-| **testdual2** | 5000 each | 50.01 | 10.00 | Mostly Unimodal |
-| **testdual3** | 5000 each | 33.01 | 10.02 | Unimodal |
-| **testdual4** | 5000 each | 42.47 | 9.01 | Bimodal |
-| **testdual5** | 5000 each | 39.99 | 11.19 | Bimodal |
-| **testdual6** | 5000 each | 37.52 | 13.47 | Unimodal (shoulder) |
-| **testdual7** | 5000 each | 35.09 | 15.79 | Unimodal (shoulder) |
-| **testdual8** | 5000 each | 42.50 | 10.89 | Unimodal |
-| **testdual9** | 5000 each | 40.05 | 12.78 | Bimodal |
+| Dataset | Instances | Total Items | Mean | S.D. | Modality |
+|---------|----------|------------:|-----:|-----:|----------|
+| testdual0 | 20 | 100000 | 50.01 | 5.01 | Bimodal Gaussian |
+| testdual4 | 20 | 100000 | 42.47 | 9.01 | Bimodal Gaussian |
+| testdual8 | 20 | 100000 | 42.50 | 10.90 | Bimodal Gaussian |
 
-### Test Data Summary
-
-| Dataset | Distribution | Mean | S.D. | Total Items |
-|---------|-------------|-----:|-----:|------------:|
-| testdual1 | Unimodal Gaussian | 32.99 | 4.99 | 100000 |
-| testdual2 | Unimodal Gaussian | 50.01 | 10.00 | 100000 |
-| testdual3 | Unimodal Gaussian | 33.01 | 10.02 | 100000 |
-| testdual4 | Bimodal Gaussian | 42.47 | 9.01 | 100000 |
-| testdual5 | Bimodal Gaussian | 39.99 | 11.19 | 100000 |
-| testdual6 | Unimodal (wide) | 37.52 | 13.47 | 100000 |
-| testdual7 | Unimodal (wide) | 35.09 | 15.79 | 100000 |
-| testdual8 | Unimodal Gaussian | 42.50 | 10.89 | 100000 |
-| testdual9 | Bimodal Gaussian | 40.05 | 12.78 | 100000 |
-
-Note: "Unimodal (shoulder)" indicates a wide, flat distribution where the KDE shows a primary peak with a slight shoulder — interpret as **Unimodal Gaussian** with high variance. The bimodal sets (testdual4/5/9) are mixtures of two Gaussians, consistent with the dual-distribution naming.
+Note: All three remaining test sets are bimodal distributions, testing the heuristic's ability to handle mixed Gaussian distributions.
 
 ---
 

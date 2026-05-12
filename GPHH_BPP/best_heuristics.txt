@@ -1,0 +1,6 @@
+Best heuristic1: -(-(*(-(FL, FXL), MIN), IFL(L, C1, FL, MAX)), %(AVE, -(-(C0.8, E), E)))
+Best heuristic2: *(%(-(FXL, C2), FI(L)), %(%(FXE, FXL), *(FXL, FXE)))
+Best heuristic3: *(*(-(-(E, FXL), -(*(-(-(E, FXE), -(*(FXE, MIN), FL)), FXL), FE)), -(-(FI(S), FI(FXE)), +(AVE, S))), *(FXE, IFL(FI(AVE), *(FXL, +(MIN, FE)), *(FXL, +(MIN, AVE)), %(L, FE))))
+Best heuristic4: %(IFL(-(C0.8, -(%(L, C0.8), MIN)), %(FE, FE), C0.8, *(FE, %(L, C0.8))), -(+(C0.4, -(%(L, C0.8), MIN)), %(L, C0.8)))
+Best heuristic5: %(*(*(L, FXE), -(E, -(MAX, %(+(L, MIN), MAX)))), -(MAX, -(FXE, E)))
+Best heuristic6: *(IFL(-(+(MIN, FXL), FI(E)), %(+(FL, C0.6), FL), -(FL, E), -(-(E, FL), +(FE, E))), %(%(FI(E), IFL(%(+(FL, C0.6), FXL), S, S, FL)), +(FL, +(FL, FI(L)))))

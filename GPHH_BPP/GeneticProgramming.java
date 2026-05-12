@@ -1,6 +1,9 @@
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.RecursiveTask;
 
 /**
  * Genetic Programming evolution engine.
@@ -22,18 +25,40 @@ public class GeneticProgramming {
     private static final double TREE_PENALTY_ALPHA = 0.0;
 
     private final Random rand;
+    private final ForkJoinPool forkJoinPool;
 
     public GeneticProgramming() {
         this.rand = new Random();
+        this.forkJoinPool = ForkJoinPool.commonPool();
     }
 
     public GeneticProgramming(long seed) {
         this.rand = new Random(seed);
+        this.forkJoinPool = ForkJoinPool.commonPool();
+    }
+
+    /**
+     * Task that evaluates one individual on all training instances.
+     */
+    private class FitnessTask extends RecursiveTask<Double> {
+        private final Individual ind;
+        private final List<BPPInstance> trainingSet;
+
+        FitnessTask(Individual ind, List<BPPInstance> trainingSet) {
+            this.ind = ind;
+            this.trainingSet = trainingSet;
+        }
+
+        @Override
+        protected Double compute() {
+            return evaluateFitness(ind.getHeuristic(), trainingSet);
+        }
     }
 
     /**
      * Evolve a heuristic on the given training set.
      * All instances are evaluated in natural order each generation (no shuffling).
+     * Fitness evaluation is parallelized across the population using ForkJoinPool.
      */
     public Heuristic evolve(List<BPPInstance> trainingSet) {
         System.out.println("Starting evolution (pop=" + POPULATION_SIZE +
@@ -54,9 +79,17 @@ public class GeneticProgramming {
         Individual bestOverall = null;
 
         for (int gen = 0; gen < MAX_GENERATIONS; gen++) {
+            List<ForkJoinTask<Double>> futures = new ArrayList<>();
             for (Individual ind : population.getIndividuals()) {
-                double fitness = evaluateFitness(ind.getHeuristic(), trainingSet);
-                ind.setFitness(fitness);
+                futures.add(forkJoinPool.submit(new FitnessTask(ind, trainingSet)));
+            }
+            for (int i = 0; i < population.getIndividuals().size(); i++) {
+                try {
+                    population.getIndividuals().get(i).setFitness(futures.get(i).get());
+                } catch (Exception e) {
+                    System.err.println("Error evaluating fitness: " + e.getMessage());
+                    population.getIndividuals().get(i).setFitness(Double.MAX_VALUE);
+                }
             }
 
             Individual best = population.getBest();

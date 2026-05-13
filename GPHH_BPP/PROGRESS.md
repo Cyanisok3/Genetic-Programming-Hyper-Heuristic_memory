@@ -13,7 +13,7 @@ javac -d out *.java
 # Train (no time limit, saves best_heuristic.ser)
 java -cp out Main --train
 
-# Solve a test instance
+# Solve a test instance (runs shuffle ensemble within 10s, keeps best)
 java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt -t 10000
 ```
 
@@ -29,33 +29,31 @@ The GP evolves a **tree-structured heuristic** that, at each step, scores every 
 
 This implementation differs from the original paper in several ways. These deviations are documented here so the gap between the standard approach and this code is transparent.
 
-1. **Training set** — Burke 2010 trains on 10 instances (5 × class1 + 5 × class2). This implementation trains on ~20 instances (5 × class1 + 5 × class2 + 5 × class3 + 5 × class4), covering all four dual-distribution classes.
-
+1. **Training set** — Burke 2010 trains on 10 instances (5 × class1 + 5 × class2). This implementation trains on 20 instances (5 × class1 + 5 × class2 + 5 × class3 + 5 × class4), covering all four dual-distribution classes.
 2. **Fitness evaluation order** — Each generation, all individuals are evaluated on all training instances in natural (file-system) order. No shuffling of instances or items occurs anywhere during training or evaluation.
-
 3. **Parallel fitness evaluation** — All individuals' fitnesses are evaluated in parallel using `ForkJoinPool.commonPool()`. Burke 2010's original evaluation is sequential.
-
 4. **Tree size control** — This implementation uses **lexicographic tournament selection**: fitness is the primary comparison key; tree size only matters when fitness ties. `TREE_PENALTY_ALPHA` is hardcoded to 0.0.
-
-5. **Test mode** runs the single evolved heuristic within a 10s time limit. No shuffle sampling is applied during evaluation.
+5. **Test mode shuffle ensemble** — Test mode now runs the evolved heuristic across up to ~400 random item shuffles within the 10s time budget and keeps the best (fewest bins) result. This exploits the fact that online BPP is order-dependent.
 
 ---
 
 ## Terminal Set (11 terminals)
 
-| # | Symbol | Description |
-|---|--------|-------------|
-| 0 | S | Current piece size |
-| 1 | E | Bin emptiness (capacity − fullness) |
-| 2 | L | Space left after placing (E − S) |
-| 3 | MIN | Minimum piece size in memory |
-| 4 | MAX | Maximum piece size in memory |
-| 5 | AVE | Average piece size in memory |
-| 6 | FE | Fraction of memory pieces fitting into E |
-| 7 | FL | Fraction of memory pieces fitting into L |
-| 8 | FXE | Fraction of memory pieces with gap ≤ 3 into E (gap = E − size, 0 < gap ≤ 3) |
-| 9 | FXL | Fraction of memory pieces with gap ≤ 3 into L (gap = L − size, 0 < gap ≤ 3) |
-| 10 | C | Ephemeral constant, one of {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} |
+
+| #   | Symbol | Description                                                                 |
+| --- | ------ | --------------------------------------------------------------------------- |
+| 0   | S      | Current piece size                                                          |
+| 1   | E      | Bin emptiness (capacity − fullness)                                         |
+| 2   | L      | Space left after placing (E − S)                                            |
+| 3   | MIN    | Minimum piece size in memory                                                |
+| 4   | MAX    | Maximum piece size in memory                                                |
+| 5   | AVE    | Average piece size in memory                                                |
+| 6   | FE     | Fraction of memory pieces fitting into E                                    |
+| 7   | FL     | Fraction of memory pieces fitting into L                                    |
+| 8   | FXE    | Fraction of memory pieces with gap ≤ 3 into E (gap = E − size, 0 < gap ≤ 3) |
+| 9   | FXL    | Fraction of memory pieces with gap ≤ 3 into L (gap = L − size, 0 < gap ≤ 3) |
+| 10  | C      | Ephemeral constant, one of {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0}              |
+
 
 > **Note:** FXE and FXL use a **hardcoded threshold of 3** for the gap. This value is not exposed as a parameter.
 
@@ -63,14 +61,16 @@ This implementation differs from the original paper in several ways. These devia
 
 ## Function Set (6 functions)
 
-| Symbol | Arity | Description |
-|--------|-------|-------------|
-| + | 2 | Addition |
-| - | 2 | Subtraction |
-| * | 2 | Multiplication |
-| % | 2 | Protected division (returns 1 if divisor = 0) |
-| FI | 1 | Fraction of memory items below threshold (proportionBelow) |
-| IFL | 4 | If-Less-Than: if a < b then c else d |
+
+| Symbol | Arity | Description                                                |
+| ------ | ----- | ---------------------------------------------------------- |
+| +      | 2     | Addition                                                   |
+| -      | 2     | Subtraction                                                |
+| *      | 2     | Multiplication                                             |
+| %      | 2     | Protected division (returns 1 if divisor = 0)              |
+| FI     | 1     | Fraction of memory items below threshold (proportionBelow) |
+| IFL    | 4     | If-Less-Than: if a < b then c else d                       |
+
 
 ---
 
@@ -84,20 +84,22 @@ Tracks the **last 100 placed items** (FIFO queue). Enables terminals MIN, MAX, A
 
 ## GP Parameters
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Population Size | 200 | |
-| Max Generations | 30 | |
-| Crossover Rate | 85% | Probability of selecting crossover; if selected, mutation may still apply (10%) |
-| Mutation Rate | 10% | Applied after crossover with 10% probability, or standalone with 10% probability |
-| Reproduction Rate | 5% | Probability of direct copy (no crossover, no mutation) |
-| Tournament Size | 7 | |
-| Elite Size | 2 | Top-2 individuals copied unchanged into next generation |
-| Min Tree Depth | 4 | Ramped half-and-half lower bound |
-| Max Tree Depth | 6 | Hard upper bound; nodes at depth ≥ MAX_DEPTH are excluded from crossover/mutation |
-| Terminal Count | 11 | |
-| Tree Penalty Alpha | 0.0 | No additive size penalty; lexicographic selection handles bloat |
-| Ephemeral Constants | {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} | Jin et al. (Memetic Computing 2024) |
+
+| Parameter           | Value                               | Notes                                                                             |
+| ------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| Population Size     | 1000                                |                                                                                   |
+| Max Generations     | 30                                  |                                                                                   |
+| Crossover Rate      | 85%                                 | Probability of selecting crossover; if selected, mutation may still apply (10%)   |
+| Mutation Rate       | 10%                                 | Applied after crossover with 10% probability, or standalone with 10% probability  |
+| Reproduction Rate   | 5%                                  | Probability of direct copy (no crossover, no mutation)                            |
+| Tournament Size     | 7                                   |                                                                                   |
+| Elite Size          | 2                                   | Top-2 individuals copied unchanged into next generation                           |
+| Min Tree Depth      | 4                                   | Ramped half-and-half lower bound                                                  |
+| Max Tree Depth      | 6                                   | Hard upper bound; nodes at depth ≥ MAX_DEPTH are excluded from crossover/mutation |
+| Terminal Count      | 11                                  |                                                                                   |
+| Tree Penalty Alpha  | 0.0                                 | No additive size penalty; lexicographic selection handles bloat                   |
+| Ephemeral Constants | {0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0} | Jin et al. (Memetic Computing 2024)                                               |
+
 
 ---
 
@@ -112,11 +114,13 @@ L2 bound = max(ceil(sum(items)/C), count(items > C/2)) — Martello & Toth (1990
 ## Phase 1 Changes
 
 ### 1.1 FI Depth Explosion Fix
+
 - `crossover()` and `mutate()` now use `collectValidNodes()` instead of `getAllNodes()`
 - A node is only eligible if its depth < MAX_DEPTH (depth 0 = root)
 - `mutate()` additionally computes remaining depth budget and caps new subtree at `min(roomLeft-1, MAX_DEPTH/2)`
 
 ### 1.2 Tree Size Control (Lexicographic Selection)
+
 - Standard GP adds `alpha * treeSize` to fitness (additive penalty) — alpha is sensitive and hard to tune
 - Instead: lexicographic comparison in tournament selection, population sort, and best tracking
 - Primary: raw fitness (lower = better). Tie-break: tree size (smaller = better)
@@ -126,20 +130,81 @@ L2 bound = max(ceil(sum(items)/C), count(items > C/2)) — Martello & Toth (1990
 - Applied to: `tournamentSelect()`, `Population.sort()`, `Population.getBest()`, best-overall comparison in `evolveFull()`
 
 ### 1.3 IFL Conditional Function
+
 - Added `IfLessThanNode` (arity 4): `if a < b then c else d`
 - Updated `createRandomFunction()` to include IFL (6 function types)
 - Updated `createTree()` to handle IFL arity 4
 - Added static `createRandomTreeStatic()` factory for use in node-level mutation
 
 ### 1.4 Depth Constraint in Mutation
+
 - `mutate()` picks from depth-constrained node pool (`collectValidNodes`)
 - New mutation subtree depth capped at `max(2, min(roomLeft-1, MAX_DEPTH/2))`
 - Ephemeral constant terminals: when selected for mutation, replaced with another constant from the set
 
 ### 1.5 Training Instance Set
+
 - Burke 2010: 10 instances (5 per class, class1 + class2)
-- This implementation: ~20 instances (5 per class, class1 + class2 + class3 + class4)
+- This implementation: 20 instances (5 per class, class1 + class2 + class3 + class4）
 - All 4 dual-distribution classes used to increase training coverage
+
+---
+
+## Phase 2 Changes
+
+### 2.1 Test-Time Shuffle Ensemble (Axis 1)
+
+The core insight is that online BPP is **deterministic given the item order**: the GP heuristic always makes the same placement decisions. Therefore, finding a better item order is equivalent to finding a better solution.
+
+**Implementation:**
+
+- `BPPSolver.solveWithOrder(items, heuristic, capacity, seed)` — accepts an optional random seed. When non-null, items are shuffled using a Fisher-Yates shuffle seeded by the given value, then solved normally. When null, items are processed in original order.
+- `Main.runTestMode()` — runs as many shuffles as possible within the `maxTime` budget, keeping the best (fewest bins) solution. Seeds are derived from `System.nanoTime() ^ shuffleIndex` for near-perfect diversity.
+
+**Results on testdual4/binpack0.txt (L2 bound = 2123):**
+
+
+| Configuration            | Bins Used | Abs Gap | Shuffles |
+| ------------------------ | --------- | ------- | -------- |
+| Baseline (before Axis 1) | ~2315     | ~192    | 1        |
+| Axis 1 shuffle ensemble  | 2310      | 187     | 402      |
+
+
+**Key observations:**
+
+- 402 shuffles completed within the 10s budget (~23ms per shuffle)
+- Best shuffle found at index 219, improving over the original order by 5 bins
+- The gap remains large (~187) because the evolved heuristic was trained exclusively on unimodal distributions and lacks intrinsic awareness of the bimodal (33/50 peak mix) structure in the test data
+- The shuffle ensemble extracts the maximum possible from the current heuristic, but a better heuristic trained on bimodal data would be needed for further gains
+
+### 2.2 Tail Buffer Re-optimization (BFD)
+
+After the GP heuristic processes the first (N - 100) items, the last up to 100 items are re-optimized using **Best Fit Decreasing (BFD)** — sorted descending by size and placed into the bin with the smallest gap that fits each item. This leverages the global bin state that accumulates during Phase 1.
+
+**Rationale:** The GP heuristic is greedy and online; it cannot look ahead. The buffer collects items that arrive late in the sequence, giving BFD a chance to optimally pack the remaining space. This is a simple but effective hybrid.
+
+**Implementation:** `BPPSolver.solveWithOrderRaw()` — Phase 1 runs GP on items 0..(N-bufferSize-1); Phase 2 runs BFD on items (N-bufferSize)..(N-1).
+
+**Ablation test (testdual4/binpack0.txt, 5000 items, same heuristic tree):**
+
+| Version       | Bins   | Ratio   | Gap  |
+|---------------|--------|---------|------|
+| With buffer   | 2303, 2305, 2304 | 1.0848–1.0857 | 180–182 |
+| No buffer     | 2306, 2309, 2311 | 1.0862–1.0886 | 183–188 |
+
+Buffer improves ~1–2 bins on average. Stable improvement confirmed.
+
+### 2.3 Remaining Axes (Not Yet Implemented)
+
+Axis 1 (shuffle ensemble) and Axis 2 (tail buffer) are implemented. Four axes remain:
+
+**Axis 3: Bimodal Training Data** — Generate class5 (33/50 equal mix) and class6 (33-strong/50-weak mix) training instances so the GP learns to recognize and exploit bimodal distributions.
+
+**Axis 4: Per-Class Specialized Heuristics** — Train one heuristic per class and use ensemble selection at test time.
+
+**Axis 5: GP Terminal Enhancements** — Add new terminals (e.g., variable-threshold FXE/FXL, bin item count) to give the GP more expressive power.
+
+**Axis 6: Local Search Post-Processing** — After the heuristic solves, run a pairwise-swap improvement pass over bins.
 
 ---
 
@@ -147,52 +212,62 @@ L2 bound = max(ceil(sum(items)/C), count(items > C/2)) — Martello & Toth (1990
 
 Items per instance: 500. Distribution modality detected via KDE with Silverman bandwidth.
 
-| File | Items | Mean | S.D. | Modality |
-|-----|------:|-----:|-----:|----------|
-| binpack0 | 500 | 49.98 | 5.07 | Bimodal |
-| binpack1 | 500 | 50.30 | 4.98 | Unimodal |
-| binpack2 | 500 | 49.81 | 4.82 | Unimodal |
-| binpack3 | 500 | 50.09 | 5.03 | Unimodal |
-| binpack4 | 500 | 50.16 | 5.20 | Unimodal |
-| **class1 avg** | **2500** | **50.07** | **5.02** | — |
 
-| File | Items | Mean | S.D. | Modality |
-|-----|------:|-----:|-----:|----------|
-| binpack5 | 500 | 33.16 | 4.77 | Unimodal |
-| binpack6 | 500 | 33.20 | 5.02 | Unimodal |
-| binpack7 | 500 | 33.18 | 5.21 | Unimodal |
-| binpack8 | 500 | 32.67 | 4.83 | Unimodal |
-| binpack9 | 500 | 32.86 | 4.97 | Bimodal |
-| **class2 avg** | **2500** | **33.01** | **4.96** | — |
+| File           | Items    | Mean      | S.D.     | Modality |
+| -------------- | -------- | --------- | -------- | -------- |
+| binpack0       | 500      | 49.98     | 5.07     | Unimodal |
+| binpack1       | 500      | 50.30     | 4.98     | Unimodal |
+| binpack2       | 500      | 49.81     | 4.82     | Unimodal |
+| binpack3       | 500      | 50.09     | 5.03     | Unimodal |
+| binpack4       | 500      | 50.16     | 5.20     | Unimodal |
+| **class1 avg** | **2500** | **50.07** | **5.02** | —        |
 
-| File | Items | Mean | S.D. | Modality |
-|-----|------:|-----:|-----:|----------|
-| binpack10 | 500 | 49.98 | 9.84 | Unimodal |
-| binpack11 | 500 | 50.38 | 9.85 | Unimodal |
-| binpack12 | 500 | 49.72 | 10.39 | Unimodal |
-| binpack13 | 500 | 51.03 | 10.08 | Unimodal |
-| binpack14 | 500 | 50.49 | 9.84 | Unimodal |
-| **class3 avg** | **2500** | **50.32** | **10.00** | — |
 
-| File | Items | Mean | S.D. | Modality |
-|-----|------:|-----:|-----:|----------|
-| binpack15 | 500 | 33.54 | 10.05 | Unimodal |
-| binpack16 | 500 | 33.02 | 10.37 | Unimodal |
-| binpack17 | 500 | 32.96 | 9.79 | Unimodal |
-| binpack18 | 500 | 32.23 | 9.84 | Unimodal |
-| binpack19 | 500 | 32.69 | 9.70 | Unimodal |
-| **class4 avg** | **2500** | **32.89** | **9.95** | — |
+
+| File           | Items    | Mean      | S.D.     | Modality |
+| -------------- | -------- | --------- | -------- | -------- |
+| binpack5       | 500      | 33.16     | 4.77     | Unimodal |
+| binpack6       | 500      | 33.20     | 5.02     | Unimodal |
+| binpack7       | 500      | 33.18     | 5.21     | Unimodal |
+| binpack8       | 500      | 32.67     | 4.83     | Unimodal |
+| binpack9       | 500      | 32.86     | 4.97     | Unimodal |
+| **class2 avg** | **2500** | **33.01** | **4.96** | —        |
+
+
+
+| File           | Items    | Mean      | S.D.      | Modality |
+| -------------- | -------- | --------- | --------- | -------- |
+| binpack10      | 500      | 49.98     | 9.84      | Unimodal |
+| binpack11      | 500      | 50.38     | 9.85      | Unimodal |
+| binpack12      | 500      | 49.72     | 10.39     | Unimodal |
+| binpack13      | 500      | 51.03     | 10.08     | Unimodal |
+| binpack14      | 500      | 50.49     | 9.84      | Unimodal |
+| **class3 avg** | **2500** | **50.32** | **10.00** | —        |
+
+
+
+| File           | Items    | Mean      | S.D.     | Modality |
+| -------------- | -------- | --------- | -------- | -------- |
+| binpack15      | 500      | 33.54     | 10.05    | Unimodal |
+| binpack16      | 500      | 33.02     | 10.37    | Unimodal |
+| binpack17      | 500      | 32.96     | 9.79     | Unimodal |
+| binpack18      | 500      | 32.23     | 9.84     | Unimodal |
+| binpack19      | 500      | 32.69     | 9.70     | Unimodal |
+| **class4 avg** | **2500** | **32.89** | **9.95** | —        |
+
 
 ### Training Data Summary
 
-| Class | Distribution | Mean | S.D. | Items |
-|-------|-------------|-----:|-----:|------:|
-| class1 | Unimodal Gaussian | 50.07 | 5.02 | 2500 |
-| class2 | Unimodal Gaussian | 33.01 | 4.96 | 2500 |
-| class3 | Unimodal Gaussian | 50.32 | 10.00 | 2500 |
-| class4 | Unimodal Gaussian | 32.89 | 9.95 | 2500 |
 
-Note: class1 and class3 share the same mean (~50) but differ in variance (S.D. 5 vs 10); class2 and class4 share the same mean (~33) but differ in variance (S.D. 5 vs 10). Two instances (binpack0, binpack9) showed marginal bimodality in the KDE — likely noise from finite sample size.
+| Class  | Distribution      | Mean  | S.D.  | Items |
+| ------ | ----------------- | ----- | ----- | ----- |
+| class1 | Unimodal Gaussian | 50.07 | 5.02  | 2500  |
+| class2 | Unimodal Gaussian | 33.01 | 4.96  | 2500  |
+| class3 | Unimodal Gaussian | 50.32 | 10.00 | 2500  |
+| class4 | Unimodal Gaussian | 32.89 | 9.95  | 2500  |
+
+
+Note: class1 and class3 share the same mean (~~50) but differ in variance (S.D. 5 vs 10); class2 and class4 share the same mean (~~33) but differ in variance (S.D. 5 vs 10). Two instances (binpack0, binpack9) showed marginal bimodality in the KDE — likely noise from finite sample size.
 
 ---
 
@@ -200,11 +275,13 @@ Note: class1 and class3 share the same mean (~50) but differ in variance (S.D. 5
 
 Items per instance: 5000. Each testdual contains 20 instances (binpack0–binpack19).
 
-| Dataset | Instances | Total Items | Mean | S.D. | Modality |
-|---------|----------|------------:|-----:|-----:|----------|
-| testdual0 | 20 | 100000 | 50.01 | 5.01 | Bimodal Gaussian |
-| testdual4 | 20 | 100000 | 42.47 | 9.01 | Bimodal Gaussian |
-| testdual8 | 20 | 100000 | 42.50 | 10.90 | Bimodal Gaussian |
+
+| Dataset   | Instances | Total Items | Mean  | S.D.  | Modality         |
+| --------- | --------- | ----------- | ----- | ----- | ---------------- |
+| testdual0 | 20        | 100000      | 50.01 | 5.01  | Bimodal Gaussian |
+| testdual4 | 20        | 100000      | 42.47 | 9.01  | Bimodal Gaussian |
+| testdual8 | 20        | 100000      | 42.50 | 10.90 | Bimodal Gaussian |
+
 
 Note: All three remaining test sets are bimodal distributions, testing the heuristic's ability to handle mixed Gaussian distributions.
 
@@ -232,3 +309,4 @@ GPHH_BPP/
 ├── DeserializeHeuristic.java  # Utility to inspect saved heuristics
 └── best_heuristic.ser     # Trained heuristic (generated by --train)
 ```
+

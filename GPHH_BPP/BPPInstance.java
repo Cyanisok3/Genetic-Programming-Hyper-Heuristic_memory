@@ -229,4 +229,12 @@ public class BPPInstance {
         }
         return L2BoundCalculator.calculate(this);
     }
+
+    /**
+     * Override the L2 bound (used by Main when it precomputes the bound).
+     */
+    public void setVerifiedL2Bound(double bound) {
+        if (l2BoundCache == null) l2BoundCache = new HashMap<>();
+        l2BoundCache.put(name, bound);
+    }
 }

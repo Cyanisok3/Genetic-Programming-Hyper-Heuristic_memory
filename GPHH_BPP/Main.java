@@ -6,6 +6,9 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.RecursiveTask;
 
 /**
  * Main entry point for the GPHH BPP solver.
@@ -135,24 +138,57 @@ public class Main {
                              ", Items: " + instance.getItemCount() +
                              ", Capacity: " + instance.getCapacity());
 
-            System.out.println("Solving instance (time limit: " + maxTime + "ms)...");
+            double l2Bound = L2BoundCalculator.calculate(instance);
+            instance.setVerifiedL2Bound(l2Bound);
+
+            System.out.println("Solving instance (time limit: " + maxTime + "ms) with shuffle ensemble...");
             long startTime = System.currentTimeMillis();
 
             BPPSolver solver = new BPPSolver();
-            Solution solution = solver.solve(instance, heuristic);
+            int capacity = instance.getCapacity();
+            int[] items = instance.getItems();
+
+            int bestBinCount = Integer.MAX_VALUE;
+            Solution bestSolution = null;
+
+            ForkJoinPool pool = ForkJoinPool.commonPool();
+            long deadline = startTime + maxTime;
+            int shuffleIndex = 0;
+
+            while (System.currentTimeMillis() < deadline) {
+                long seed = System.nanoTime() ^ (long) shuffleIndex;
+                final int idx = shuffleIndex;
+
+                Solution sol = solver.solveWithOrder(items, heuristic, capacity, seed);
+                if (sol.getBinCount() < bestBinCount) {
+                    bestBinCount = sol.getBinCount();
+                    bestSolution = sol;
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    System.out.println("  [shuffle " + idx + "] bins=" + bestBinCount + " (elapsed: " + elapsed + "ms)");
+                }
+                shuffleIndex++;
+            }
+
+            if (bestSolution == null) {
+                System.out.println("  No shuffle completed within time; using default order.");
+                bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
+                bestBinCount = bestSolution.getBinCount();
+            }
 
             long totalElapsed = System.currentTimeMillis() - startTime;
-            System.out.println("Solved in " + totalElapsed + "ms");
+            int shufflesDone = shuffleIndex;
+            System.out.println("Ensemble complete: " + shufflesDone + " shuffles in " + totalElapsed + "ms");
 
-            double l2Bound = L2BoundCalculator.calculate(instance);
-            solution.setL2Bound(l2Bound);
+            bestSolution.setInstanceName(instance.getName());
+            bestSolution.setL2Bound(l2Bound);
 
-            System.out.println("Solution: " + solution.getBinCount() + " bins used");
+            System.out.println("Solution: " + bestBinCount + " bins used");
             System.out.println("L2 lower bound: " + (int) l2Bound);
-            System.out.println("Ratio: " + String.format("%.4f", (double) solution.getBinCount() / l2Bound));
+            System.out.println("Ratio: " + String.format("%.4f", (double) bestBinCount / l2Bound));
+            System.out.println("Gap (bins - L2): " + (bestBinCount - (int) l2Bound));
 
             System.out.println("Saving solution to: " + solutionPath);
-            solution.save(solutionPath);
+            bestSolution.save(solutionPath);
             System.out.println("Done!");
 
         } catch (IOException e) {

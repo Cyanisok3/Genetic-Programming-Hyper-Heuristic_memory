@@ -14,7 +14,7 @@ javac -d out *.java
 java -cp out Main --train
 
 # Solve a test instance
-java -cp out Main -s dualdistribution/test/testdual0/binpack0.txt -o solution.txt -t 10000
+java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt -t 10000
 ```
 
 ---
@@ -156,6 +156,8 @@ Items per instance: 500. Distribution modality detected via KDE with Silverman b
 | binpack4 | 500 | 50.16 | 5.20 | Unimodal |
 | **class1 avg** | **2500** | **50.07** | **5.02** | — |
 
+| File | Items | Mean | S.D. | Modality |
+|-----|------:|-----:|-----:|----------|
 | binpack5 | 500 | 33.16 | 4.77 | Unimodal |
 | binpack6 | 500 | 33.20 | 5.02 | Unimodal |
 | binpack7 | 500 | 33.18 | 5.21 | Unimodal |
@@ -163,6 +165,8 @@ Items per instance: 500. Distribution modality detected via KDE with Silverman b
 | binpack9 | 500 | 32.86 | 4.97 | Bimodal |
 | **class2 avg** | **2500** | **33.01** | **4.96** | — |
 
+| File | Items | Mean | S.D. | Modality |
+|-----|------:|-----:|-----:|----------|
 | binpack10 | 500 | 49.98 | 9.84 | Unimodal |
 | binpack11 | 500 | 50.38 | 9.85 | Unimodal |
 | binpack12 | 500 | 49.72 | 10.39 | Unimodal |
@@ -170,6 +174,8 @@ Items per instance: 500. Distribution modality detected via KDE with Silverman b
 | binpack14 | 500 | 50.49 | 9.84 | Unimodal |
 | **class3 avg** | **2500** | **50.32** | **10.00** | — |
 
+| File | Items | Mean | S.D. | Modality |
+|-----|------:|-----:|-----:|----------|
 | binpack15 | 500 | 33.54 | 10.05 | Unimodal |
 | binpack16 | 500 | 33.02 | 10.37 | Unimodal |
 | binpack17 | 500 | 32.96 | 9.79 | Unimodal |

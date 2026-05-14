@@ -9,7 +9,6 @@ import java.util.List;
 public class Population implements Serializable {
     
     private List<Individual> individuals;
-    private Individual elite;
     
     public Population() {
         this.individuals = new ArrayList<>();
@@ -67,31 +66,6 @@ public class Population implements Serializable {
      */
     public boolean isEmpty() {
         return individuals.isEmpty();
-    }
-    
-    /**
-     * Set the elite individual.
-     * @param elite Elite individual
-     */
-    public void setElite(Individual elite) {
-        this.elite = elite;
-    }
-    
-    /**
-     * Get the elite individual.
-     * @return Elite
-     */
-    public Individual getElite() {
-        return elite;
-    }
-    
-    /**
-     * Add the elite to this population.
-     */
-    public void addElite() {
-        if (elite != null) {
-            individuals.add(elite.copy());
-        }
     }
     
     /**

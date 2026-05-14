@@ -26,14 +26,25 @@ public class GeneticProgramming {
 
     private final Random rand;
     private final ForkJoinPool forkJoinPool;
+    private final int minDepth;
+    private final int maxDepth;
 
     public GeneticProgramming() {
-        this.rand = new Random();
-        this.forkJoinPool = ForkJoinPool.commonPool();
+        this(MIN_DEPTH, MAX_DEPTH, new Random());
     }
 
     public GeneticProgramming(long seed) {
-        this.rand = new Random(seed);
+        this(MIN_DEPTH, MAX_DEPTH, new Random(seed));
+    }
+
+    public GeneticProgramming(int minDepth, int maxDepth, long seed) {
+        this(minDepth, maxDepth, new Random(seed));
+    }
+
+    private GeneticProgramming(int minDepth, int maxDepth, Random rand) {
+        this.minDepth = minDepth;
+        this.maxDepth = maxDepth;
+        this.rand = rand;
         this.forkJoinPool = ForkJoinPool.commonPool();
     }
 
@@ -56,14 +67,34 @@ public class GeneticProgramming {
     }
 
     /**
-     * Evolve a heuristic on the given training set.
+     * Evolve a heuristic on the given training set (backward-compat wrapper).
+     * Delegates to evolveFull with the default depth config (Island A).
+     */
+    public Heuristic evolve(List<BPPInstance> trainingSet) {
+        return evolveFull(trainingSet, MIN_DEPTH, MAX_DEPTH);
+    }
+
+    /**
+     * Static entry point for island threads.
+     * Creates a GP instance with island-specific depth config and runs evolution.
+     */
+    public static Heuristic evolveIsland(long seed, int minDepth, int maxDepth,
+                                        List<BPPInstance> trainingSet) {
+        GeneticProgramming gp = new GeneticProgramming(minDepth, maxDepth, seed);
+        return gp.evolveFull(trainingSet, minDepth, maxDepth);
+    }
+
+    /**
+     * Full evolution loop using island-specific depth constraints.
      * All instances are evaluated in natural order each generation (no shuffling).
      * Fitness evaluation is parallelized across the population using ForkJoinPool.
      */
-    public Heuristic evolve(List<BPPInstance> trainingSet) {
+    private Heuristic evolveFull(List<BPPInstance> trainingSet, int evMinDepth, int evMaxDepth) {
+        String name = (evMinDepth == MIN_DEPTH && evMaxDepth == MAX_DEPTH) ? "" :
+                      String.format(", minD=%d, maxD=%d", evMinDepth, evMaxDepth);
         System.out.println("Starting evolution (pop=" + POPULATION_SIZE +
                          ", gen=" + MAX_GENERATIONS +
-                         ", instances=" + trainingSet.size() + ")...");
+                         ", instances=" + trainingSet.size() + name + ")...");
 
         if (trainingSet.isEmpty()) {
             System.err.println("Error: No training instances available.");
@@ -72,7 +103,7 @@ public class GeneticProgramming {
 
         Population population = new Population(POPULATION_SIZE);
         for (int i = 0; i < POPULATION_SIZE; i++) {
-            GPNode tree = createRandomTree(MIN_DEPTH, MAX_DEPTH);
+            GPNode tree = createRandomTree(evMinDepth, evMaxDepth);
             population.add(new Individual(tree));
         }
 
@@ -111,15 +142,15 @@ public class GeneticProgramming {
                 if (r < CROSSOVER_RATE) {
                     Individual parent1 = tournamentSelect(population);
                     Individual parent2 = tournamentSelect(population);
-                    Individual child = crossover(parent1, parent2);
+                    Individual child = crossover(parent1, parent2, evMaxDepth);
                     if (rand.nextDouble() < MUTATION_RATE) {
-                        mutate(child);
+                        mutate(child, evMinDepth, evMaxDepth);
                     }
                     newPop.add(child);
                 } else if (r < CROSSOVER_RATE + MUTATION_RATE) {
                     Individual parent = tournamentSelect(population);
                     Individual child = parent.copy();
-                    mutate(child);
+                    mutate(child, evMinDepth, evMaxDepth);
                     newPop.add(child);
                 } else {
                     Individual parent = tournamentSelect(population);
@@ -167,20 +198,63 @@ public class GeneticProgramming {
     }
 
     /**
-     * Subtree crossover using depth-constrained node pool.
+     * Subtree crossover using depth-constrained node pool (backward-compat, uses MAX_DEPTH).
      */
     public Individual crossover(Individual parent1, Individual parent2) {
+        return crossover(parent1, parent2, MAX_DEPTH);
+    }
+
+    /**
+     * Subtree crossover using depth-constrained node pool.
+     * @param maxDepth depth limit for selecting crossover points
+     */
+    public Individual crossover(Individual parent1, Individual parent2, int maxDepth) {
         GPNode tree1 = parent1.getTree().copy();
         GPNode tree2 = parent2.getTree().copy();
 
-        List<GPNode> nodes1 = collectValidNodes(tree1, MAX_DEPTH, 0);
-        List<GPNode> nodes2 = collectValidNodes(tree2, MAX_DEPTH, 0);
+        List<GPNode> nodes1 = collectValidNodes(tree1, maxDepth, 0);
+        List<GPNode> nodes2 = collectValidNodes(tree2, maxDepth, 0);
 
         GPNode node1 = nodes1.get(rand.nextInt(nodes1.size()));
         GPNode node2 = nodes2.get(rand.nextInt(nodes2.size()));
 
+        int depthAtNode1 = getNodeDepth(tree1, node1, 0);
+        int subtree2Depth = node2.getDepth();
+        int roomLeft = maxDepth - depthAtNode1;
+
+        if (subtree2Depth > roomLeft) {
+            int maxNewDepth = Math.max(1, Math.min(roomLeft - 1, maxDepth / 2));
+            node2 = truncateTree(node2, maxNewDepth);
+        }
+
         tree1.replaceNode(node1, node2.copy());
         return new Individual(tree1);
+    }
+
+    /**
+     * Recursively truncate a tree to not exceed maxDepth (where root has depth 1).
+     * Guarantees no function nodes are left with zero children (which would break tree structure).
+     */
+    private GPNode truncateTree(GPNode node, int maxDepth) {
+        if (maxDepth <= 0) return null;
+        GPNode copy = node.copy();
+        if (maxDepth == 1) {
+            if (!copy.getChildren().isEmpty()) {
+                return createRandomTerminalStatic(1, 1, rand);
+            }
+            return copy;
+        }
+        List<GPNode> newChildren = new ArrayList<>();
+        for (GPNode child : copy.getChildren()) {
+            GPNode truncated = truncateTree(child, maxDepth - 1);
+            if (truncated == null) {
+                truncated = createRandomTerminalStatic(1, 1, rand);
+            }
+            newChildren.add(truncated);
+        }
+        copy.getChildren().clear();
+        for (GPNode c : newChildren) copy.addChild(c);
+        return copy;
     }
 
     /**
@@ -197,11 +271,20 @@ public class GeneticProgramming {
     }
 
     /**
-     * Subtree mutation with depth constraint.
+     * Subtree mutation with depth constraint (backward-compat, uses MIN_DEPTH/MAX_DEPTH).
      */
     public void mutate(Individual individual) {
+        mutate(individual, MIN_DEPTH, MAX_DEPTH);
+    }
+
+    /**
+     * Subtree mutation with island-specific depth constraints.
+     * @param minDepth island min depth
+     * @param maxDepth island max depth
+     */
+    public void mutate(Individual individual, int minDepth, int maxDepth) {
         GPNode tree = individual.getTree();
-        List<GPNode> nodes = collectValidNodes(tree, MAX_DEPTH, 0);
+        List<GPNode> nodes = collectValidNodes(tree, maxDepth, 0);
         GPNode node = nodes.get(rand.nextInt(nodes.size()));
         int currentDepth = getNodeDepth(tree, node, 0);
 
@@ -212,8 +295,8 @@ public class GeneticProgramming {
             GPNode newTerminal = createRandomTerminal();
             tree.replaceNode(node, newTerminal);
         } else {
-            int roomLeft = MAX_DEPTH - currentDepth;
-            int maxNewDepth = Math.max(2, Math.min(roomLeft - 1, MAX_DEPTH / 2));
+            int roomLeft = maxDepth - currentDepth;
+            int maxNewDepth = Math.max(1, Math.min(maxDepth - currentDepth - 1, maxDepth / 2));
             GPNode newSubtree = createRandomTreeStatic(1, maxNewDepth, rand);
             tree.replaceNode(node, newSubtree);
         }

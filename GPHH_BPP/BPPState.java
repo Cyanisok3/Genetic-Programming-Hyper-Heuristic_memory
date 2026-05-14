@@ -26,13 +26,6 @@ public class BPPState {
         this.memory = other.memory.copy();
     }
 
-    public void nextItem() {
-        currentPosition++;
-        if (currentPosition < items.length) {
-            memory.addItem(items[currentPosition - 1]);
-        }
-    }
-
     public void placeItem(int itemSize) {
         binFullness += itemSize;
     }

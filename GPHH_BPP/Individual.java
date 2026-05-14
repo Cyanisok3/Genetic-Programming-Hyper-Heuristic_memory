@@ -47,14 +47,23 @@ public class Individual implements Serializable {
     }
 
     /**
-     * Lexicographic comparison: first by raw fitness, then by tree size (smaller wins).
-     * Used by tournament selection and population sorting to naturally discourage bloat
-     * without an alpha parameter.
+     * Epsilon for grouping similar fitness values into the same bucket.
+     * Two individuals with fitness difference <= EPSILON are considered equally fit,
+     * allowing tree size to act as the true tiebreaker.
+     */
+    private static final double FITNESS_EPSILON = 1e-7;
+
+    /**
+     * Lexicographic comparison: first by raw fitness bucket, then by tree size (smaller wins).
+     * Fitness is bucketed to EPSILON granularity so that tree size meaningfully breaks ties
+     * between individuals with nearly identical fitness.
      * @return negative if this is better, positive if other is better
      */
     public int compareToLexicographic(Individual other) {
-        int fitnessCmp = Double.compare(this.fitness, other.fitness);
-        if (fitnessCmp != 0) return fitnessCmp;
+        double thisBucket = Math.floor(this.fitness / FITNESS_EPSILON);
+        double otherBucket = Math.floor(other.fitness / FITNESS_EPSILON);
+        int bucketCmp = Double.compare(thisBucket, otherBucket);
+        if (bucketCmp != 0) return bucketCmp;
         return Integer.compare(this.getTree().getSize(), other.getTree().getSize());
     }
 

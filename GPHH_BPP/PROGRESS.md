@@ -10,11 +10,14 @@ Genetic Programming Hyper-Heuristic for the online Bin Packing Problem, based on
 # Compile
 javac -d out *.java
 
-# Train (no time limit, saves best_heuristic.ser)
+# Train (island model, no time limit, saves ensemble.ser)
 java -cp out Main --train
 
-# Solve a test instance (runs shuffle ensemble within 10s, keeps best)
+# Solve with memory switching (Strategy 2a, default)
 java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt -t 10000
+
+# Solve with weighted voting (Strategy 2b)
+java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt -t 10000 --weighted-voting
 ```
 
 ---
@@ -25,15 +28,12 @@ java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.tx
 
 The GP evolves a **tree-structured heuristic** that, at each step, scores every feasible bin and selects the highest-scored one. The novelty over plain GP is the **Memory** mechanism: the last 100 placed pieces are stored, and terminal nodes can read statistical summaries of that history (MIN, MAX, AVE, FE, FL, FXE, FXL). This lets the heuristic adapt its behavior based on the observed piece-size distribution.
 
-### This Implementation: Deviations from Burke 2010
+### This Implementation: Architecture
 
-This implementation differs from the original paper in several ways. These deviations are documented here so the gap between the standard approach and this code is transparent.
-
-1. **Training set** — Burke 2010 trains on 10 instances (5 × class1 + 5 × class2). This implementation trains on 20 instances (5 × class1 + 5 × class2 + 5 × class3 + 5 × class4), covering all four dual-distribution classes.
-2. **Fitness evaluation order** — Each generation, all individuals are evaluated on all training instances in natural (file-system) order. No shuffling of instances or items occurs anywhere during training or evaluation.
-3. **Parallel fitness evaluation** — All individuals' fitnesses are evaluated in parallel using `ForkJoinPool.commonPool()`. Burke 2010's original evaluation is sequential.
-4. **Tree size control** — This implementation uses **lexicographic tournament selection**: fitness is the primary comparison key; tree size only matters when fitness ties. `TREE_PENALTY_ALPHA` is hardcoded to 0.0.
-5. **Test mode shuffle ensemble** — Test mode now runs the evolved heuristic across up to ~400 random item shuffles within the 10s time budget and keeps the best (fewest bins) result. This exploits the fact that online BPP is order-dependent.
+1. **Island Model Training** — 4 islands evolve independently with different depth configs; best heuristic from each island is saved to `ensemble.ser`
+2. **Memory-Based Heuristic Switching (Strategy 2a)** — warmup with island A → classify distribution via `memory.getAverage()` → select best heuristic for this instance type
+3. **Weighted Voting (Strategy 2b, opt-in)** — each heuristic scores each bin; weights from warmup AVE
+4. **K×M Parallel Shuffle Ensemble (Strategy 3b)** — parallel ForkJoin across shuffles, each using the selected/weighted heuristic
 
 ---
 
@@ -187,24 +187,99 @@ After the GP heuristic processes the first (N - 100) items, the last up to 100 i
 
 **Ablation test (testdual4/binpack0.txt, 5000 items, same heuristic tree):**
 
-| Version       | Bins   | Ratio   | Gap  |
-|---------------|--------|---------|------|
-| With buffer   | 2303, 2305, 2304 | 1.0848–1.0857 | 180–182 |
-| No buffer     | 2306, 2309, 2311 | 1.0862–1.0886 | 183–188 |
+
+| Version     | Bins             | Ratio         | Gap     |
+| ----------- | ---------------- | ------------- | ------- |
+| With buffer | 2303, 2305, 2304 | 1.0848–1.0857 | 180–182 |
+| No buffer   | 2306, 2309, 2311 | 1.0862–1.0886 | 183–188 |
+
 
 Buffer improves ~1–2 bins on average. Stable improvement confirmed.
 
-### 2.3 Remaining Axes (Not Yet Implemented)
+---
 
-Axis 1 (shuffle ensemble) and Axis 2 (tail buffer) are implemented. Four axes remain:
+## Phase 3: Island Model GP (Training)
 
-**Axis 3: Bimodal Training Data** — Generate class5 (33/50 equal mix) and class6 (33-strong/50-weak mix) training instances so the GP learns to recognize and exploit bimodal distributions.
+### 3.1 Motivation
 
-**Axis 4: Per-Class Specialized Heuristics** — Train one heuristic per class and use ensemble selection at test time.
+Training a single GP population on bimodal test data risks premature convergence to one peak (e.g., always optimizing for 33-mean behavior). Island Model addresses this by running multiple independent GP populations ("islands") with different configurations, then collecting their best heuristics into an ensemble.
 
-**Axis 5: GP Terminal Enhancements** — Add new terminals (e.g., variable-threshold FXE/FXL, bin item count) to give the GP more expressive power.
+### 3.2 Island Configuration
 
-**Axis 6: Local Search Post-Processing** — After the heuristic solves, run a pairwise-swap improvement pass over bins.
+| Island | Seed | Min Depth | Max Depth | Diversity Strategy |
+|--------|------|-----------|-----------|-------------------|
+| A      | 42   | 4         | 6         | Balanced (base config) |
+| B      | 137  | 3         | 5         | Compact trees (shallower) |
+| C      | 256  | 4         | 6         | Deep: minD=4 (deeper than A/B), explores complex interactions |
+| D      | 999  | 5         | 6         | Wide-medium trees (deeper min than A) |
+
+**Diversity from:** different random seeds + different depth constraints. Islands B/C/D are not "worse" than A — they explore different parts of the heuristic search space.
+
+### 3.3 Implementation
+
+- `IslandModelGP.trainAll(trainingSet)` — runs 4 islands in parallel via `ExecutorService`, each calling `GeneticProgramming.evolveIsland(seed, minDepth, maxDepth, trainingSet)`
+- `GeneticProgramming.evolveIsland()` — static factory; creates a private-constructor `GP(minDepth, maxDepth, seed)` instance and calls `evolveFull()` with island-specific depth params
+- `crossover(parent1, parent2, maxDepth)` and `mutate(individual, minDepth, maxDepth)` — island-aware variants; the old no-arg versions delegate with `MAX_DEPTH` for backward compat
+- All 4 islands evolve on the **same training set** (20 instances, all 4 classes)
+
+### 3.4 Output
+
+`ensemble.ser` — a `List<Heuristic>` of 4 heuristics, one per island (A/B/C/D).
+
+---
+
+## Phase 4: Dynamic Heuristic Switching + Parallel Ensemble (Test-Time)
+
+### 4.1 Memory-Based Hard-Switching (Strategy 2a, default)
+
+The key insight is that `memory.getAverage()` depends only on item sizes, not on which heuristic placed them. After placing just the first 50 items, AVE is enough to classify the distribution:
+
+| AVE range | Likely class | Selected heuristic |
+|-----------|-------------|-------------------|
+| AVE > 45  | High-mean dominant | hC (deeper min depth) |
+| AVE < 36  | Low-mean dominant  | hB (compact trees) |
+| otherwise | Mixed/bimodal       | hA (balanced) |
+
+**Flow:**
+1. Run warmup with island A's heuristic on first 50 items — collect `memory.getAverage()`, discard placements
+2. Use AVE to select one heuristic
+3. Re-shuffle items and solve with the selected heuristic
+
+### 4.2 Weighted Voting (Strategy 2b, opt-in via `--weighted-voting`)
+
+Each heuristic produces a score per bin. Final score = `sum(w_i * score_i)`, where weights are derived from warmup AVE:
+
+```
+w_bimodal = max(0, 1 - |AVE - 40.5| / 8.5)
+if (w_bimodal < 0.3:
+    # Unimodal zone: use closest specialist only
+    w_closest = 1.0
+else:
+    # Bimodal zone: balanced (hA) + closest specialist
+    wA = 0.5, w_specialist = 0.5
+```
+
+Note: the bimodal center shifts from 41.5 to 40.5 because theAVE=42.1 threshold change (41→45) changes the "high" zone interpretation. The weight formula centers on the bimodal gap midpoint (50+33)/2 ≈ 41.5 adjusted to 40.5 to better align with the revised hard-switch thresholds.
+
+### 4.3 K×M Parallel Shuffle Ensemble (Strategy 3b)
+
+The **top-level warmup** runs once per test run, producing a decision (which heuristic or which weights). Then:
+
+- Multiple shuffle tasks run in parallel via `ForkJoinPool` (batch size = 32)
+- Each `ShuffleTask` evaluates one shuffle with the pre-selected strategy
+- Best solution across all shuffles is returned
+
+Implementation: `ParallelShuffleEnsemble.run(items, timeLimitMs)`.
+
+### 4.4 Execution
+
+```bash
+# Default: island ensemble + memory switching (2a) + parallel shuffles (3b)
+java -cp out Main -s instance -o solution.txt -t 10000
+
+# Alternative: weighted voting (2b)
+java -cp out Main -s instance -o solution.txt -t 10000 --weighted-voting
+```
 
 ---
 
@@ -293,20 +368,21 @@ Note: All three remaining test sets are bimodal distributions, testing the heuri
 GPHH_BPP/
 ├── Main.java               # Entry point (--train or -s/-o/-t modes)
 ├── BPPInstance.java        # Problem instance loader
-├── BPPSolver.java          # Online BPP solver using GP heuristic
+├── BPPSolver.java          # Online BPP solver + memory switching (Strategy 2a/2b)
 ├── BPPState.java           # State for heuristic evaluation
 ├── Bin.java                # Bin representation
 ├── Solution.java           # Solution representation
 ├── Memory.java             # Memory mechanism (last 100 items, FIFO)
 ├── L2BoundCalculator.java  # L2 lower bound (Martello & Toth 1990)
-├── GeneticProgramming.java # GP evolution engine
+├── GeneticProgramming.java # GP evolution engine + island-aware crossover/mutation
 ├── GPNode.java             # Abstract GP tree node
 ├── FunctionNode.java       # Function nodes (+, -, *, %, FI, IFL)
 ├── TerminalNode.java       # Terminal nodes (11 types above)
 ├── Heuristic.java         # Heuristic wrapper for GP tree
 ├── Individual.java         # GP individual (tree + fitness + lexicographic comparison)
-├── Population.java        # GP population
-├── DeserializeHeuristic.java  # Utility to inspect saved heuristics
-└── best_heuristic.ser     # Trained heuristic (generated by --train)
+├── Population.java         # GP population
+├── IslandModelGP.java     # Island Model: 4-thread parallel island training
+├── ParallelShuffleEnsemble.java  # K×M matrix ForkJoin parallel ensemble
+└── ensemble.ser           # Trained ensemble (4 heuristics, generated by --train)
 ```
 

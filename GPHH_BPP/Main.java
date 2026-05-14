@@ -6,22 +6,19 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.RecursiveTask;
 
 /**
  * Main entry point for the GPHH BPP solver.
  *
- * Training mode: java -cp out Main --train
- * Test mode:     java -cp out Main -s instance_file -o solution_file [-t max_time]
+ * Training mode:  java -cp out Main --train
+ * Test mode:      java -cp out Main -s instance_file -o solution_file [-t max_time] [--weighted-voting]
  *
  * Compile: javac -d out *.java
  */
 public class Main {
 
     private static final long DEFAULT_TIME_LIMIT = 10000;
-    private static final String SERIALIZED_HEURISTIC = "best_heuristic.ser";
+    private static final String ENSEMBLE_FILE = "ensemble.ser";
     private static final int NUM_CLASSES = 4;
 
     public static void main(String[] args) {
@@ -33,7 +30,7 @@ public class Main {
     }
 
     private static void runTrainingMode() {
-        System.out.println("=== Training Mode ===");
+        System.out.println("=== Training Mode: Island Model GP ===");
 
         System.out.println("Loading training set...");
         List<BPPInstance> trainingSet = loadTrainingSet("dualdistribution/train");
@@ -44,23 +41,28 @@ public class Main {
             System.exit(1);
         }
 
-        System.out.println("Evolving heuristic (no time limit)...");
         long startTime = System.currentTimeMillis();
-
-        GeneticProgramming gp = new GeneticProgramming();
-        Heuristic best = gp.evolve(trainingSet);
-
+        List<Heuristic> heuristics = IslandModelGP.trainAll(trainingSet);
         long elapsed = System.currentTimeMillis() - startTime;
+
+        if (heuristics.isEmpty()) {
+            System.err.println("Error: No heuristics evolved successfully.");
+            System.exit(1);
+        }
+
         System.out.println("Evolution completed in " + elapsed + "ms (" + (elapsed / 1000.0) + "s)");
-        System.out.println("Best heuristic: " + best);
-        System.out.println("Tree size: " + best.getSize() + " nodes, depth: " + best.getDepth());
+        System.out.println("Heuristics evolved: " + heuristics.size());
+        for (int i = 0; i < heuristics.size(); i++) {
+            Heuristic h = heuristics.get(i);
+            System.out.println("  h" + (char)('A' + i) + ": size=" + h.getSize() + ", depth=" + h.getDepth());
+        }
 
         try (ObjectOutputStream out = new ObjectOutputStream(
-                new FileOutputStream(SERIALIZED_HEURISTIC))) {
-            out.writeObject(best);
-            System.out.println("Heuristic saved successfully.");
+                new FileOutputStream(ENSEMBLE_FILE))) {
+            out.writeObject(heuristics);
+            System.out.println("Ensemble saved to: " + ENSEMBLE_FILE);
         } catch (IOException e) {
-            System.err.println("Error saving heuristic: " + e.getMessage());
+            System.err.println("Error saving ensemble: " + e.getMessage());
             System.exit(1);
         }
     }
@@ -92,6 +94,7 @@ public class Main {
         String instancePath = null;
         String solutionPath = null;
         long maxTime = DEFAULT_TIME_LIMIT;
+        boolean useWeightedVoting = false;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-s") && i + 1 < args.length) {
@@ -105,6 +108,8 @@ public class Main {
                     System.err.println("Invalid time value.");
                     System.exit(1);
                 }
+            } else if (args[i].equals("--weighted-voting")) {
+                useWeightedVoting = true;
             } else if (args[i].equals("-h") || args[i].equals("--help")) {
                 printUsage();
                 System.exit(0);
@@ -117,20 +122,25 @@ public class Main {
         }
 
         try {
-            File heuristicFile = new File(SERIALIZED_HEURISTIC);
-            if (!heuristicFile.exists()) {
-                System.err.println("Error: Heuristic file not found: " + SERIALIZED_HEURISTIC);
+            File ensembleFile = new File(ENSEMBLE_FILE);
+            if (!ensembleFile.exists()) {
+                System.err.println("Error: Ensemble file not found: " + ENSEMBLE_FILE);
+                System.err.println("Run 'java -cp out Main --train' first.");
                 System.exit(1);
             }
 
-            System.out.println("Loading heuristic from: " + SERIALIZED_HEURISTIC);
-            Heuristic heuristic;
+            System.out.println("Loading ensemble from: " + ENSEMBLE_FILE);
+            List<Heuristic> heuristicsList;
             try (ObjectInputStream in = new ObjectInputStream(
-                    new FileInputStream(SERIALIZED_HEURISTIC))) {
-                heuristic = (Heuristic) in.readObject();
+                    new FileInputStream(ENSEMBLE_FILE))) {
+                heuristicsList = (List<Heuristic>) in.readObject();
             }
-            System.out.println("Heuristic loaded: " + heuristic);
-            System.out.println("Tree size: " + heuristic.getSize() + " nodes, depth: " + heuristic.getDepth());
+            Heuristic[] heuristics = heuristicsList.toArray(new Heuristic[0]);
+            System.out.println("Ensemble loaded: " + heuristics.length + " heuristics");
+            for (int i = 0; i < heuristics.length; i++) {
+                System.out.println("  h" + (char)('A' + i) + ": size=" + heuristics[i].getSize() +
+                                 ", depth=" + heuristics[i].getDepth());
+            }
 
             System.out.println("Loading instance: " + instancePath);
             BPPInstance instance = BPPInstance.load(instancePath);
@@ -141,43 +151,20 @@ public class Main {
             double l2Bound = L2BoundCalculator.calculate(instance);
             instance.setVerifiedL2Bound(l2Bound);
 
-            System.out.println("Solving instance (time limit: " + maxTime + "ms) with shuffle ensemble...");
             long startTime = System.currentTimeMillis();
-
-            BPPSolver solver = new BPPSolver();
-            int capacity = instance.getCapacity();
-            int[] items = instance.getItems();
-
-            int bestBinCount = Integer.MAX_VALUE;
-            Solution bestSolution = null;
-
-            ForkJoinPool pool = ForkJoinPool.commonPool();
             long deadline = startTime + maxTime;
-            int shuffleIndex = 0;
 
-            while (System.currentTimeMillis() < deadline) {
-                long seed = System.nanoTime() ^ (long) shuffleIndex;
-                final int idx = shuffleIndex;
+            System.out.println("Solving (time limit: " + maxTime + "ms)" +
+                             (useWeightedVoting ? " with weighted voting" : " with memory switching"));
 
-                Solution sol = solver.solveWithOrder(items, heuristic, capacity, seed);
-                if (sol.getBinCount() < bestBinCount) {
-                    bestBinCount = sol.getBinCount();
-                    bestSolution = sol;
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    System.out.println("  [shuffle " + idx + "] bins=" + bestBinCount + " (elapsed: " + elapsed + "ms)");
-                }
-                shuffleIndex++;
-            }
+            ParallelShuffleEnsemble ensemble = new ParallelShuffleEnsemble(
+                heuristics, instance.getCapacity(), useWeightedVoting);
 
-            if (bestSolution == null) {
-                System.out.println("  No shuffle completed within time; using default order.");
-                bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
-                bestBinCount = bestSolution.getBinCount();
-            }
+            ParallelShuffleEnsemble.EnsembleResult result = ensemble.run(instance.getItems(), maxTime);
 
-            long totalElapsed = System.currentTimeMillis() - startTime;
-            int shufflesDone = shuffleIndex;
-            System.out.println("Ensemble complete: " + shufflesDone + " shuffles in " + totalElapsed + "ms");
+            Solution bestSolution = result.solution;
+            int bestBinCount = result.bestBinCount;
+            long totalElapsed = result.elapsedMs;
 
             bestSolution.setInstanceName(instance.getName());
             bestSolution.setL2Bound(l2Bound);
@@ -206,12 +193,13 @@ public class Main {
         System.out.println("    java -cp out Main --train");
         System.out.println();
         System.out.println("  Testing:");
-        System.out.println("    java -cp out Main -s instance_file -o solution_file [-t max_time]");
+        System.out.println("    java -cp out Main -s instance_file -o solution_file [-t max_time] [--weighted-voting]");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  -s instance_file    Path to the BPP instance file");
         System.out.println("  -o solution_file   Path to save the solution");
         System.out.println("  -t max_time        Maximum time in milliseconds (default: 10000)");
+        System.out.println("  --weighted-voting  Use weighted voting (Strategy 2b) instead of hard-switch (Strategy 2a)");
         System.out.println("  -h, --help         Show this help message");
     }
 }

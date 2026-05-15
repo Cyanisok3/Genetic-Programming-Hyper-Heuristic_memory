@@ -3,11 +3,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Memory mechanism that tracks the last 100 items seen during BPP solving.
+ * Memory mechanism that tracks the last 200 items seen during BPP solving.
+ * Tracks recent item sizes so heuristics can exploit sequential patterns in the instance.
  * Used to compute memory-based terminals (MIN, MAX, AVE, FE, FL, FXE, FXL).
  */
 public class Memory implements Serializable {
     
+    // Sliding window size: how many recent items to remember.
+    // 200 covers ~2x the bin capacity in dual-distribution instances.
     public static final int MEMORY_SIZE = 200;
     
     private List<Integer> items;

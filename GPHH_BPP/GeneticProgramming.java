@@ -12,63 +12,25 @@ import java.util.concurrent.RecursiveTask;
  */
 public class GeneticProgramming {
 
-    public static final int POPULATION_SIZE = 300;
-    public static final int MAX_GENERATIONS = 100;
-    public static final double CROSSOVER_RATE = 0.70;
-    public static final double MUTATION_RATE = 0.10;
-    public static final double REPRODUCTION_RATE = 0.10;
-    public static final int TOURNAMENT_SIZE = 7;
-    public static final int ELITE_SIZE = 1;
-    public static final int MIN_DEPTH = 4;
-    public static final int MAX_DEPTH = 6;
-    public static final int TERMINAL_COUNT = 11;
-    private static final double TREE_PENALTY_ALPHA = 0.0;
-
-    private static final double MUTATION_RATE_MIN = 0.05;
-    private static final double MUTATION_RATE_MAX = 0.50;
-    private static final double MUTATION_RATE_STEP = 0.02;
-    private static final int STAGNATION_THRESHOLD = 3;
-    private static final double IMPROVEMENT_THRESHOLD_PCT = 0.001; // 0.1% relative improvement to decrease rate
-
     private final Random rand;
     private final ForkJoinPool forkJoinPool;
-    private double adaptiveMutationRate;
-    private int stagnationCounter;
-    private double lastGenBestFitness;
+
+    private final Config cfg = Config.INSTANCE;
 
     public GeneticProgramming() {
         this.rand = new Random();
         this.forkJoinPool = ForkJoinPool.commonPool();
-        this.adaptiveMutationRate = MUTATION_RATE;
-        this.stagnationCounter = 0;
-        this.lastGenBestFitness = Double.POSITIVE_INFINITY;
+        cfg.resetAdaptiveMutation();
     }
 
     public GeneticProgramming(long seed) {
         this.rand = new Random(seed);
         this.forkJoinPool = ForkJoinPool.commonPool();
-        this.adaptiveMutationRate = MUTATION_RATE;
-        this.stagnationCounter = 0;
-        this.lastGenBestFitness = Double.POSITIVE_INFINITY;
+        cfg.resetAdaptiveMutation();
     }
 
     private void updateAdaptiveMutationRate(double currentBestFitness) {
-        double improvement = lastGenBestFitness - currentBestFitness;
-        double relativeImprovement = improvement / lastGenBestFitness;
-
-        if (relativeImprovement > IMPROVEMENT_THRESHOLD_PCT) {
-            stagnationCounter = 0;
-            adaptiveMutationRate = Math.max(MUTATION_RATE_MIN,
-                adaptiveMutationRate - MUTATION_RATE_STEP);
-        } else {
-            stagnationCounter++;
-            if (stagnationCounter >= STAGNATION_THRESHOLD) {
-                adaptiveMutationRate = Math.min(MUTATION_RATE_MAX,
-                    adaptiveMutationRate + MUTATION_RATE_STEP);
-                stagnationCounter = 0;
-            }
-        }
-        lastGenBestFitness = currentBestFitness;
+        cfg.updateAdaptiveMutationRate(currentBestFitness);
     }
 
     /**
@@ -90,13 +52,14 @@ public class GeneticProgramming {
     }
 
     /**
-     * Evolve a heuristic on the given training set.
+     * Evolve a single GP heuristic on the given training set.
      * All instances are evaluated in natural order each generation (no shuffling).
      * Fitness evaluation is parallelized across the population using ForkJoinPool.
+     * Returns the best individual found across all generations (tracked via elitism).
      */
     public Heuristic evolve(List<BPPInstance> trainingSet) {
-        System.out.println("Starting evolution (pop=" + POPULATION_SIZE +
-                         ", gen=" + MAX_GENERATIONS +
+        System.out.println("Starting evolution (pop=" + cfg.POPULATION_SIZE +
+                         ", gen=" + cfg.MAX_GENERATIONS +
                          ", instances=" + trainingSet.size() + ")...");
 
         if (trainingSet.isEmpty()) {
@@ -104,19 +67,17 @@ public class GeneticProgramming {
             return null;
         }
 
-        adaptiveMutationRate = MUTATION_RATE;
-        stagnationCounter = 0;
-        lastGenBestFitness = Double.POSITIVE_INFINITY;
+        cfg.resetAdaptiveMutation();
 
-        Population population = new Population(POPULATION_SIZE);
-        for (int i = 0; i < POPULATION_SIZE; i++) {
-            GPNode tree = createRandomTree(MIN_DEPTH, MAX_DEPTH);
+        Population population = new Population(cfg.POPULATION_SIZE);
+        for (int i = 0; i < cfg.POPULATION_SIZE; i++) {
+            GPNode tree = createRandomTree(cfg.MIN_DEPTH, cfg.MAX_DEPTH);
             population.add(new Individual(tree));
         }
 
         Individual bestOverall = null;
 
-        for (int gen = 0; gen < MAX_GENERATIONS; gen++) {
+        for (int gen = 0; gen < cfg.MAX_GENERATIONS; gen++) {
             List<ForkJoinTask<Double>> futures = new ArrayList<>();
             for (Individual ind : population.getIndividuals()) {
                 futures.add(forkJoinPool.submit(new FitnessTask(ind, trainingSet)));
@@ -136,28 +97,28 @@ public class GeneticProgramming {
             }
 
             System.out.println("Gen " + gen + ": best=" + String.format("%.6f", best.getFitness()) +
-                " mut=" + String.format("%.2f", adaptiveMutationRate));
+                " mut=" + String.format("%.2f", cfg.getAdaptiveMutationRate()));
 
             updateAdaptiveMutationRate(best.getFitness());
 
             Population newPop = new Population();
             population.sort();
-            for (int i = 0; i < Math.min(ELITE_SIZE, population.size()); i++) {
+            for (int i = 0; i < Math.min(cfg.ELITE_SIZE, population.size()); i++) {
                 newPop.add(population.get(i).copy());
             }
 
-            while (newPop.size() < POPULATION_SIZE) {
+            while (newPop.size() < cfg.POPULATION_SIZE) {
                 double r = rand.nextDouble();
 
-                if (r < CROSSOVER_RATE) {
+                if (r < cfg.CROSSOVER_RATE) {
                     Individual parent1 = tournamentSelect(population);
                     Individual parent2 = tournamentSelect(population);
                     Individual child = crossover(parent1, parent2);
-                    if (rand.nextDouble() < adaptiveMutationRate) {
+                    if (rand.nextDouble() < cfg.getAdaptiveMutationRate()) {
                         mutate(child);
                     }
                     newPop.add(child);
-                } else if (r < CROSSOVER_RATE + adaptiveMutationRate) {
+                } else if (r < cfg.CROSSOVER_RATE + cfg.getAdaptiveMutationRate()) {
                     Individual parent = tournamentSelect(population);
                     Individual child = parent.copy();
                     mutate(child);
@@ -175,8 +136,8 @@ public class GeneticProgramming {
     }
 
     /**
-     * Average of bins_used / L2_bound across all training instances.
-     * TREE_PENALTY_ALPHA is 0.0; tree size only matters via lexicographic comparison.
+     * Fitness = average (bins_used / L2_bound) across all training instances.
+     * Tree size is handled by lexicographic comparison in selection (smaller wins tie).
      */
     private double evaluateFitness(Heuristic h, List<BPPInstance> trainingSet) {
         double sum = 0.0;
@@ -187,9 +148,7 @@ public class GeneticProgramming {
             if (l2Bound <= 0) l2Bound = L2BoundCalculator.calculate(instance);
             sum += (double) solution.getBinCount() / l2Bound;
         }
-        double rawFitness = sum / trainingSet.size();
-        double treeSizePenalty = TREE_PENALTY_ALPHA * h.getRoot().getSize();
-        return rawFitness + treeSizePenalty;
+        return sum / trainingSet.size();
     }
 
     /**
@@ -198,7 +157,7 @@ public class GeneticProgramming {
      */
     public Individual tournamentSelect(Population population) {
         Individual best = null;
-        for (int i = 0; i < TOURNAMENT_SIZE; i++) {
+        for (int i = 0; i < cfg.TOURNAMENT_SIZE; i++) {
             Individual candidate = population.get(rand.nextInt(population.size()));
             if (best == null || candidate.compareToLexicographic(best) < 0) {
                 best = candidate;
@@ -214,8 +173,8 @@ public class GeneticProgramming {
         GPNode tree1 = parent1.getTree().copy();
         GPNode tree2 = parent2.getTree().copy();
 
-        List<GPNode> nodes1 = collectValidNodes(tree1, MAX_DEPTH, 0);
-        List<GPNode> nodes2 = collectValidNodes(tree2, MAX_DEPTH, 0);
+        List<GPNode> nodes1 = collectValidNodes(tree1, cfg.MAX_DEPTH, 0);
+        List<GPNode> nodes2 = collectValidNodes(tree2, cfg.MAX_DEPTH, 0);
 
         GPNode node1 = nodes1.get(rand.nextInt(nodes1.size()));
         GPNode node2 = nodes2.get(rand.nextInt(nodes2.size()));
@@ -242,7 +201,7 @@ public class GeneticProgramming {
      */
     public void mutate(Individual individual) {
         GPNode tree = individual.getTree();
-        List<GPNode> nodes = collectValidNodes(tree, MAX_DEPTH, 0);
+        List<GPNode> nodes = collectValidNodes(tree, cfg.MAX_DEPTH, 0);
         GPNode node = nodes.get(rand.nextInt(nodes.size()));
         int currentDepth = getNodeDepth(tree, node, 0);
 
@@ -253,8 +212,8 @@ public class GeneticProgramming {
             GPNode newTerminal = createRandomTerminal();
             tree.replaceNode(node, newTerminal);
         } else {
-            int roomLeft = MAX_DEPTH - currentDepth;
-            int maxNewDepth = Math.max(2, Math.min(roomLeft - 1, MAX_DEPTH / 2));
+            int roomLeft = cfg.MAX_DEPTH - currentDepth;
+            int maxNewDepth = Math.max(2, Math.min(roomLeft - 1, cfg.MAX_DEPTH / 2));
             GPNode newSubtree = createRandomTreeStatic(1, maxNewDepth, rand);
             tree.replaceNode(node, newSubtree);
         }
@@ -323,7 +282,7 @@ public class GeneticProgramming {
     }
 
     private static GPNode createRandomTerminalStatic(int minDepth, int maxDepth, Random rand) {
-        int type = rand.nextInt(TERMINAL_COUNT);
+        int type = rand.nextInt(Config.INSTANCE.TERMINAL_COUNT);
         switch (type) {
             case 0: return new PieceSizeTerminal();
             case 1: return new BinEmptinessTerminal();
@@ -389,7 +348,7 @@ public class GeneticProgramming {
     }
 
     public GPNode createRandomTerminal() {
-        int type = rand.nextInt(TERMINAL_COUNT);
+        int type = rand.nextInt(cfg.TERMINAL_COUNT);
         switch (type) {
             case 0: return new PieceSizeTerminal();
             case 1: return new BinEmptinessTerminal();

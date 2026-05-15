@@ -166,20 +166,6 @@ public class BPPInstance {
         return sum;
     }
     
-    /**
-     * Count items larger than half the bin capacity.
-     * Used for L2 lower bound calculation.
-     */
-    public int countItemsLargerThan(int threshold) {
-        int count = 0;
-        for (int item : items) {
-            if (item > threshold) {
-                count++;
-            }
-        }
-        return count;
-    }
-    
     @Override
     public String toString() {
         return name + " (" + items.length + " items, capacity " + capacity + ")";

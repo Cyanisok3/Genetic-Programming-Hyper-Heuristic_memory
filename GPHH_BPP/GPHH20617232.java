@@ -10,10 +10,11 @@ import java.util.List;
 /**
  * Main entry point for the GPHH BPP solver.
  *
- * Training mode: java -cp out Main --train
- * Test mode:     java -cp out Main -s instance_file -o solution_file [-t max_time]
- *
- * Compile: javac -d out *.java
+ * Training mode: java GPHH20617232 --train
+ *                OR java -cp out GPHH20617232 --train
+ * Test mode:     java GPHH20617232 -s instance_file -o solution_file [-t max_time]
+ *                OR java -cp out GPHH20617232 -s instance_file -o solution_file [-t max_time]
+ * Compile: [javac *.java] OR [javac -d out *.java]
  */
 public class GPHH20617232 {
 
@@ -139,13 +140,12 @@ public class GPHH20617232 {
             instance.setVerifiedL2Bound(l2Bound);
 
             System.out.println("Solving instance (time limit: " + maxTime + "ms)...");
-            long startTime = System.currentTimeMillis();
 
             BPPSolver solver = new BPPSolver();
             int capacity = instance.getCapacity();
             int[] items = instance.getItems();
 
-            long deadline = startTime + maxTime;
+            long deadline = System.currentTimeMillis() + maxTime;
             int trialIndex = 0;
             int bestBinCount = Integer.MAX_VALUE;
             Solution bestSolution = null;
@@ -156,8 +156,6 @@ public class GPHH20617232 {
                 if (sol.getBinCount() < bestBinCount) {
                     bestBinCount = sol.getBinCount();
                     bestSolution = sol;
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    System.out.println("  [trial " + trialIndex + "] bins=" + bestBinCount + " (elapsed: " + elapsed + "ms)");
                 }
                 trialIndex++;
             }
@@ -166,9 +164,6 @@ public class GPHH20617232 {
                 bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
                 bestBinCount = bestSolution.getBinCount();
             }
-
-            long totalElapsed = System.currentTimeMillis() - startTime;
-            System.out.println("Multiple trials complete: " + trialIndex + " trials in " + totalElapsed + "ms");
 
             bestSolution.setInstanceName(instance.getName());
             bestSolution.setL2Bound(l2Bound);
@@ -194,15 +189,15 @@ public class GPHH20617232 {
     private static void printUsage() {
         System.out.println("Usage:");
         System.out.println("  Training (no time limit):");
-        System.out.println("    java -cp out Main --train");
+        System.out.println("    java GPHH20617232 --train");
         System.out.println();
         System.out.println("  Testing:");
-        System.out.println("    java -cp out Main -s instance_file -o solution_file [-t max_time]");
+        System.out.println("    java GPHH20617232 -s instance_file -o solution_file [-t max_time]");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  -s instance_file    Path to the BPP instance file");
         System.out.println("  -o solution_file   Path to save the solution");
-        System.out.println("  -t max_time        Maximum time in milliseconds (default: 10000)");
+        System.out.println("  -t max_time        Maximum time in milliseconds (default: 9999)");
         System.out.println("  -h, --help         Show this help message");
     }
 }

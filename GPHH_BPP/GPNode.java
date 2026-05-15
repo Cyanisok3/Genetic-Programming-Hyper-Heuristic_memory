@@ -74,16 +74,6 @@ public abstract class GPNode implements Serializable {
     }
     
     /**
-     * Select a random node from this subtree.
-     * @param rand Random number generator
-     * @return A random node
-     */
-    public GPNode getRandomNode(Random rand) {
-        List<GPNode> allNodes = getAllNodes();
-        return allNodes.get(rand.nextInt(allNodes.size()));
-    }
-    
-    /**
      * Replace a node in this subtree with another node.
      * @param target Node to replace
      * @param replacement Replacement node

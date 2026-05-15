@@ -6,9 +6,6 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.RecursiveTask;
 
 /**
  * Main entry point for the GPHH BPP solver.
@@ -141,43 +138,37 @@ public class Main {
             double l2Bound = L2BoundCalculator.calculate(instance);
             instance.setVerifiedL2Bound(l2Bound);
 
-            System.out.println("Solving instance (time limit: " + maxTime + "ms) with shuffle ensemble...");
+            System.out.println("Solving instance (time limit: " + maxTime + "ms)...");
             long startTime = System.currentTimeMillis();
 
             BPPSolver solver = new BPPSolver();
             int capacity = instance.getCapacity();
             int[] items = instance.getItems();
 
+            long deadline = startTime + maxTime;
+            int trialIndex = 0;
             int bestBinCount = Integer.MAX_VALUE;
             Solution bestSolution = null;
 
-            ForkJoinPool pool = ForkJoinPool.commonPool();
-            long deadline = startTime + maxTime;
-            int shuffleIndex = 0;
-
             while (System.currentTimeMillis() < deadline) {
-                long seed = System.nanoTime() ^ (long) shuffleIndex;
-                final int idx = shuffleIndex;
-
+                long seed = System.nanoTime() ^ (long) trialIndex;
                 Solution sol = solver.solveWithOrder(items, heuristic, capacity, seed);
                 if (sol.getBinCount() < bestBinCount) {
                     bestBinCount = sol.getBinCount();
                     bestSolution = sol;
                     long elapsed = System.currentTimeMillis() - startTime;
-                    System.out.println("  [shuffle " + idx + "] bins=" + bestBinCount + " (elapsed: " + elapsed + "ms)");
+                    System.out.println("  [trial " + trialIndex + "] bins=" + bestBinCount + " (elapsed: " + elapsed + "ms)");
                 }
-                shuffleIndex++;
+                trialIndex++;
             }
 
             if (bestSolution == null) {
-                System.out.println("  No shuffle completed within time; using default order.");
                 bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
                 bestBinCount = bestSolution.getBinCount();
             }
 
             long totalElapsed = System.currentTimeMillis() - startTime;
-            int shufflesDone = shuffleIndex;
-            System.out.println("Ensemble complete: " + shufflesDone + " shuffles in " + totalElapsed + "ms");
+            System.out.println("Multiple trials complete: " + trialIndex + " trials in " + totalElapsed + "ms");
 
             bestSolution.setInstanceName(instance.getName());
             bestSolution.setL2Bound(l2Bound);

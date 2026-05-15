@@ -13,7 +13,7 @@ javac -d out *.java
 # Train (no time limit, saves best_heuristic.ser)
 java -cp out Main --train
 
-# Solve a test instance (runs shuffle ensemble within 10s, keeps best)
+# Solve a test instance (runs multiple trials within 10s, keeps best)
 java -cp out Main -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt -t 10000
 ```
 
@@ -33,7 +33,7 @@ This implementation differs from the original paper in several ways. These devia
 2. **Fitness evaluation order** — Each generation, all individuals are evaluated on all training instances in natural (file-system) order. No shuffling of instances or items occurs anywhere during training or evaluation.
 3. **Parallel fitness evaluation** — All individuals' fitnesses are evaluated in parallel using `ForkJoinPool.commonPool()`. Burke 2010's original evaluation is sequential.
 4. **Tree size control** — This implementation uses **lexicographic tournament selection**: fitness is the primary comparison key; tree size only matters when fitness ties. `TREE_PENALTY_ALPHA` is hardcoded to 0.0.
-5. **Test mode shuffle ensemble** — Test mode now runs the evolved heuristic across up to ~400 random item shuffles within the 10s time budget and keeps the best (fewest bins) result. This exploits the fact that online BPP is order-dependent.
+5. **Test mode multiple trials** — Test mode runs the evolved heuristic across up to ~400 random shuffles within the 10s time budget and keeps the best (fewest bins) result. Random tie-breaking (same seed, independent `Random` stream) adds diversity when multiple bins have equal GP scores.
 
 ---
 
@@ -152,59 +152,36 @@ L2 bound = max(ceil(sum(items)/C), count(items > C/2)) — Martello & Toth (1990
 
 ## Phase 2 Changes
 
-### 2.1 Test-Time Shuffle Ensemble (Axis 1)
+### 2.1 Test-Time Multiple Trials with Shuffle
 
 The core insight is that online BPP is **deterministic given the item order**: the GP heuristic always makes the same placement decisions. Therefore, finding a better item order is equivalent to finding a better solution.
 
-**Implementation:**
+**Implementation — `BPPSolver.java`:**
 
-- `BPPSolver.solveWithOrder(items, heuristic, capacity, seed)` — accepts an optional random seed. When non-null, items are shuffled using a Fisher-Yates shuffle seeded by the given value, then solved normally. When null, items are processed in original order.
-- `Main.runTestMode()` — runs as many shuffles as possible within the `maxTime` budget, keeping the best (fewest bins) solution. Seeds are derived from `System.nanoTime() ^ shuffleIndex` for near-perfect diversity.
-
-**Results on testdual4/binpack0.txt (L2 bound = 2123):**
-
-
-| Configuration            | Bins Used | Abs Gap | Shuffles |
-| ------------------------ | --------- | ------- | -------- |
-| Baseline (before Axis 1) | ~2315     | ~192    | 1        |
-| Axis 1 shuffle ensemble  | 2310      | 187     | 402      |
-
+- `solveWithOrder(items, heuristic, capacity)` — training path: items in original order, no randomness.
+- `solveWithOrder(items, heuristic, capacity, seed)` — test path: when `seed != null`, items are Fisher-Yates shuffled using a dedicated `Random(seed)`. The same seed also produces a second `Random` instance passed into `solveWithOrderRaw` for tie-breaking.
+- `solveWithOrderRaw()` — core solve loop. For each item, the GP heuristic is evaluated on every feasible bin. The item is placed in the highest-scoring bin. **Random tie-breaking**: when two bins are tied on both GP score and remaining space, `rng.nextBoolean()` randomly picks one. This adds diversity even across trials with identical item orders.
+- `Main.runTestMode()` — runs as many trials as possible within `maxTime`, each with `seed = System.nanoTime() ^ trialIndex`. Keeps the best (fewest bins) solution.
 
 **Key observations:**
 
-- 402 shuffles completed within the 10s budget (~23ms per shuffle)
-- Best shuffle found at index 219, improving over the original order by 5 bins
-- The gap remains large (~187) because the evolved heuristic was trained exclusively on unimodal distributions and lacks intrinsic awareness of the bimodal (33/50 peak mix) structure in the test data
-- The shuffle ensemble extracts the maximum possible from the current heuristic, but a better heuristic trained on bimodal data would be needed for further gains
+- ~400 trials fit within a 10s budget (~23ms per trial)
+- Random tie-breaking uses the same seed as the shuffle but is otherwise independent — the two `Random` instances derived from the same seed generate different sequences
+- The large gap (~187 bins over L2) on testdual4 reflects that the evolved heuristic was trained exclusively on unimodal distributions and is unaware of the bimodal (33/50 peak mix) structure in test data
 
-### 2.2 Tail Buffer Re-optimization (BFD)
+### 2.2 Remaining Axes (Not Yet Implemented)
 
-After the GP heuristic processes the first (N - 100) items, the last up to 100 items are re-optimized using **Best Fit Decreasing (BFD)** — sorted descending by size and placed into the bin with the smallest gap that fits each item. This leverages the global bin state that accumulates during Phase 1.
+Multiple trials with shuffle (Axis 1) is implemented. Five axes remain:
 
-**Rationale:** The GP heuristic is greedy and online; it cannot look ahead. The buffer collects items that arrive late in the sequence, giving BFD a chance to optimally pack the remaining space. This is a simple but effective hybrid.
+**Axis 2: Bimodal Training Data** — Generate class5 (33/50 equal mix) and class6 (33-strong/50-weak mix) training instances so the GP learns to recognize and exploit bimodal distributions.
 
-**Implementation:** `BPPSolver.solveWithOrderRaw()` — Phase 1 runs GP on items 0..(N-bufferSize-1); Phase 2 runs BFD on items (N-bufferSize)..(N-1).
+**Axis 3: Per-Class Specialized Heuristics** — Train one heuristic per class and use ensemble selection at test time.
 
-**Ablation test (testdual4/binpack0.txt, 5000 items, same heuristic tree):**
+**Axis 4: GP Terminal Enhancements** — Add new terminals (e.g., variable-threshold FXE/FXL, bin item count) to give the GP more expressive power.
 
-| Version       | Bins   | Ratio   | Gap  |
-|---------------|--------|---------|------|
-| With buffer   | 2303, 2305, 2304 | 1.0848–1.0857 | 180–182 |
-| No buffer     | 2306, 2309, 2311 | 1.0862–1.0886 | 183–188 |
+**Axis 5: Local Search Post-Processing** — After the heuristic solves, run a pairwise-swap improvement pass over bins.
 
-Buffer improves ~1–2 bins on average. Stable improvement confirmed.
-
-### 2.3 Remaining Axes (Not Yet Implemented)
-
-Axis 1 (shuffle ensemble) and Axis 2 (tail buffer) are implemented. Four axes remain:
-
-**Axis 3: Bimodal Training Data** — Generate class5 (33/50 equal mix) and class6 (33-strong/50-weak mix) training instances so the GP learns to recognize and exploit bimodal distributions.
-
-**Axis 4: Per-Class Specialized Heuristics** — Train one heuristic per class and use ensemble selection at test time.
-
-**Axis 5: GP Terminal Enhancements** — Add new terminals (e.g., variable-threshold FXE/FXL, bin item count) to give the GP more expressive power.
-
-**Axis 6: Local Search Post-Processing** — After the heuristic solves, run a pairwise-swap improvement pass over bins.
+**Axis 6: Adaptive Tie-Breaking Strategy** — Dynamically adjust tie-breaking behavior based on observed piece-size distribution (e.g., more exploration for bimodal instances).
 
 ---
 

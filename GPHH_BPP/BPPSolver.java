@@ -1,5 +1,4 @@
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -11,7 +10,7 @@ import java.util.Random;
  * A new bin is opened if no existing bin can fit the item.
  */
 public class BPPSolver {
-    
+
     /**
      * Solve a BPP instance using the given heuristic.
      * Items are processed in their original order (online BPP).
@@ -26,16 +25,17 @@ public class BPPSolver {
         sol.setInstanceName(instance.getName());
         return sol;
     }
-    
+
     /**
      * Solve with a specific item order (fast version for training).
+     * Items are processed in the given order.
      * @param items Item sizes in specific order
      * @param heuristic GP heuristic to use
      * @param capacity Bin capacity
      * @return Solution
      */
     public Solution solveWithOrder(int[] items, Heuristic heuristic, int capacity) {
-        return solveWithOrder(items, heuristic, capacity, null);
+        return solveWithOrderRaw(items, heuristic, capacity, null);
     }
 
     /**
@@ -48,40 +48,37 @@ public class BPPSolver {
      * @return Solution
      */
     public Solution solveWithOrder(int[] items, Heuristic heuristic, int capacity, Long seed) {
+        Random rng = (seed != null) ? new Random(seed) : null;
         int[] workItems = items;
         if (seed != null) {
             workItems = items.clone();
-            Random rnd = new Random(seed);
+            Random shuffleRng = new Random(seed);
             for (int i = workItems.length - 1; i > 0; i--) {
-                int j = rnd.nextInt(i + 1);
+                int j = shuffleRng.nextInt(i + 1);
                 int tmp = workItems[i];
                 workItems[i] = workItems[j];
                 workItems[j] = tmp;
             }
         }
-        return solveWithOrderRaw(workItems, heuristic, capacity);
+        return solveWithOrderRaw(workItems, heuristic, capacity, rng);
     }
-
-    private static final int TAIL_BUFFER_SIZE = 100;
 
     /**
      * Core solve loop on a pre-ordered workItems array.
-     * Phase 1: GP heuristic on first (N - TAIL_BUFFER_SIZE) items.
-     * Phase 2: BFD re-optimization of the last TAIL_BUFFER_SIZE items.
+     * GP heuristic evaluates each feasible bin; item goes to best-scoring bin.
+     * @param items Pre-ordered item sizes
+     * @param heuristic GP heuristic to use
+     * @param capacity Bin capacity
+     * @param rng Random instance for tie-breaking; may be null
+     * @return Solution
      */
-    private Solution solveWithOrderRaw(int[] workItems, Heuristic heuristic, int capacity) {
-        int itemCount = workItems.length;
-        int bufferSize = Math.min(TAIL_BUFFER_SIZE, itemCount);
-        int mainItemCount = itemCount - bufferSize;
-
+    private Solution solveWithOrderRaw(int[] items, Heuristic heuristic, int capacity, Random rng) {
         List<Bin> bins = new ArrayList<>();
         bins.add(new Bin(capacity));
-
         Memory memory = new Memory();
 
-        // --- Phase 1: GP heuristic on first (N - bufferSize) items ---
-        for (int itemIdx = 0; itemIdx < mainItemCount; itemIdx++) {
-            int pieceSize = workItems[itemIdx];
+        for (int itemIdx = 0; itemIdx < items.length; itemIdx++) {
+            int pieceSize = items[itemIdx];
 
             int bestBinIdx = -1;
             double bestScore = Double.NEGATIVE_INFINITY;
@@ -92,7 +89,7 @@ public class BPPSolver {
                 int remainingSpace = bin.getEmptiness() - pieceSize;
                 if (remainingSpace < 0) continue;
 
-                BPPState state = createState(workItems, itemIdx, bin, memory);
+                BPPState state = createState(items, itemIdx, bin, memory);
                 double score = heuristic.evaluate(state);
 
                 if (score > bestScore ||
@@ -100,6 +97,12 @@ public class BPPSolver {
                     bestScore = score;
                     bestBinIdx = binIdx;
                     bestRemainingSpace = remainingSpace;
+                } else if (Math.abs(score - bestScore) < 1e-6 && remainingSpace == bestRemainingSpace) {
+                    // Random tie-breaking: when score and remainingSpace are equal,
+                    // randomly choose between the current bin and this one
+                    if (rng != null && rng.nextBoolean()) {
+                        bestBinIdx = binIdx;
+                    }
                 }
             }
 
@@ -111,47 +114,9 @@ public class BPPSolver {
             bins.get(bestBinIdx).addItem(itemIdx + 1, pieceSize);
             memory.addItem(pieceSize);
         }
-
-        // --- Phase 2: Buffer re-optimization (BFD) ---
-        // Collect buffered items: original 1-based index and size
-        int[][] bufferItems = new int[bufferSize][2];
-        for (int i = 0; i < bufferSize; i++) {
-            int originalIdx = mainItemCount + i + 1;
-            int size = workItems[mainItemCount + i];
-            bufferItems[i][0] = originalIdx;
-            bufferItems[i][1] = size;
-        }
-        // Sort descending by size (Best Fit Decreasing)
-        Arrays.sort(bufferItems, (a, b) -> Integer.compare(b[1], a[1]));
-
-        for (int i = 0; i < bufferSize; i++) {
-            int originalIdx = bufferItems[i][0];
-            int pieceSize = bufferItems[i][1];
-
-            // Best Fit: find bin with smallest gap that fits this item
-            int bestBinIdx = -1;
-            int bestRemainingSpace = Integer.MAX_VALUE;
-
-            for (int binIdx = 0; binIdx < bins.size(); binIdx++) {
-                Bin bin = bins.get(binIdx);
-                int remainingSpace = bin.getEmptiness() - pieceSize;
-                if (remainingSpace < 0) continue;
-                if (remainingSpace < bestRemainingSpace) {
-                    bestRemainingSpace = remainingSpace;
-                    bestBinIdx = binIdx;
-                }
-            }
-
-            if (bestBinIdx == -1) {
-                bins.add(new Bin(capacity));
-                bestBinIdx = bins.size() - 1;
-            }
-
-            bins.get(bestBinIdx).addItem(originalIdx, pieceSize);
-        }
         return new Solution("solved", bins);
     }
-    
+
     /**
      * Create a BPPState for evaluating placement of item at index in a specific bin.
      */

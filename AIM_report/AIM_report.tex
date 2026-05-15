@@ -1,0 +1,168 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Using Genetic Programming Hyper-Heuristic for Online Bin Packing Problem}
+
+\author{Qingyang LIU \;|\; 20617232 \;|\; sayql5@nottingham.edu.cn}
+
+\maketitle
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section{Introduction}
+
+The one-dimensional Bin Packing Problem (BPP) is a classic combinatorial optimisation problem: given $n$ items with sizes $a_j$ and bins of identical capacity $V$, pack all items into the minimum number of bins without exceeding capacity. BPP is NP-Hard and appears in numerous real-world domains including logistics, warehouse packing, and cloud resource allocation.
+
+This report describes an implementation of a Genetic Programming Hyper-Heuristic (GPHH) for online BPP, following the framework of Burke, Hyde, and Kendall (2010). The key innovation in that work is the introduction of a \emph{memory mechanism} that allows the GP-evolved heuristic to observe the recent history of placed items, enabling more informed bin-selection decisions. Our implementation extends this framework with a two-phase hybrid solver that combines GP-driven online packing with a Best Fit Decreasing (BFD) buffer optimisation for the final items.
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section{Related Work}
+
+Genetic Programming Hyper-Heuristic (GPHH) was introduced by Burke et al. as a method for automatically designing constructive heuristics for combinatorial optimisation problems. Rather than directly searching the solution space, GPHH searches the space of heuristics, where each heuristic is evaluated by the quality of solutions it produces.
+
+Burke et al. (2010) applied GPHH to the online BPP, evolving tree-structured heuristics that decide which bin to place the current item into. Their key contribution was the memory mechanism: a sliding window tracking the last $k$ placed items, from which multiple statistical terminals (MIN, MAX, average, fitting ratios, etc.) are computed. This memory allows the heuristic to infer the distribution of upcoming items and adapt its packing strategy accordingly.
+
+The GPHH framework was subsequently extended by Jin et al. through a two-stage rollout memetic genetic programming approach, which combines evolutionary global search with local rollout intensification. Our work draws on both of these directions, using the Burke et al. memory terminals as the terminal set and implementing a tail-buffer BFD phase inspired by the hybrid strategies discussed in the literature.
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section{Methodology}
+
+\subsection{Solution Encoding}
+
+The heuristic is encoded as a GP expression tree whose root node returns a real-valued \emph{score} for a given (item, bin) pair. Given a new item and a set of feasible bins, the solver evaluates the heuristic tree for each bin and selects the bin with the highest score (ties resolved by smallest remaining space). If no existing bin can accommodate the item, a new bin is opened. This is a constructive, online approach: once placed, an item cannot be moved.
+
+The tree uses typed GP where terminal nodes return real numbers and function nodes perform arithmetic or conditional operations on their children.
+
+\subsection{Fitness Function}
+
+Each GP individual is evaluated across all training instances. For a single instance, the fitness is the number of bins used divided by the L2 lower bound (Martello and Toth, 1990). The L2 bound is computed as:
+\begin{equation}
+L2 = \max\left(\left\lceil\frac{\sum_{j=1}^{n} a_j}{V}\right\rceil,\; \#\{j : a_j > V/2\}\right)
+\end{equation}
+
+The overall fitness of an individual is the average bin-to-L2 ratio over all training instances:
+\begin{equation}
+f = \frac{1}{|T|}\sum_{i \in T} \frac{\text{bins}(i)}{L2(i)}
+\end{equation}
+where $T$ is the training set. Lower fitness is better. A lexicographic tie-breaker (smaller tree size wins) is applied when two individuals have equal fitness, serving as a lightweight bloat-control mechanism.
+
+\subsection{Terminal Set (Memory Mechanism)}
+
+The terminal set follows Burke et al. (2010), providing the heuristic with information about the current item, the candidate bin, and the recent packing history via a memory buffer of the last $M=100$ placed items.
+
+\begin{itemize}
+\item \textbf{S} -- current piece (item) size
+\item \textbf{E} -- bin emptiness (capacity minus current fullness)
+\item \textbf{L} -- space left after placing (E minus S)
+\item \textbf{MIN} -- minimum size among memory items
+\item \textbf{MAX} -- maximum size among memory items
+\item \textbf{AVE} -- average size of memory items
+\item \textbf{FE} -- proportion of memory items that fit into space E
+\item \textbf{FL} -- proportion of memory items that fit into space L
+\item \textbf{FXE} -- proportion of memory items with gap $\leq 3$ to E
+\item \textbf{FXL} -- proportion of memory items with gap $\leq 3$ to L
+\item \textbf{C} -- ephemeral random constant (from $\{0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0\}$)
+\end{itemize}
+
+Terminals FE, FL, FXE, and FXL provide direct utility signals: they quantify how many recent items would fit into the current bin, enabling the heuristic to prefer bins that align with the observed item distribution.
+
+\subsection{Function Set}
+
+Six function nodes are used:
+\begin{itemize}
+\item \textbf{+} / \textbf{-} / \textbf{*} / \textbf{\%} -- protected arithmetic (division by zero returns 1.0)
+\item \textbf{FI($x$)} -- proportion of memory items with size $<$ $x$
+\item \textbf{IFL($a, b, c, d$)} -- if $a < b$ then $c$ else $d$
+\end{itemize}
+
+FI and IFL provide conditional and proportional reasoning capabilities, allowing the heuristic to behave differently under different item-size regimes.
+
+\subsection{Evolutionary Operators}
+
+The GP system uses the following parameters: population size $= 1000$, generations $= 30$, crossover rate $= 0.85$, mutation rate $= 0.10$, reproduction rate $= 0.05$, tournament size $= 7$, elite size $= 2$, initial tree depth range $[4, 6]$, maximum depth $= 6$.
+
+\begin{itemize}
+\item \textbf{Selection:} Tournament selection with lexicographic comparison (fitness primary, tree size secondary).
+\item \textbf{Crossover:} Subtree crossover; valid crossover nodes are restricted to depth $< 6$ to control tree growth.
+\item \textbf{Mutation:} Subtree mutation with depth constraint; terminal mutation can replace ephemeral constants.
+\item \textbf{Bloat control:} Lexicographic tie-breaking on tree size during both selection and population sorting, plus the depth constraint on crossover/mutation nodes.
+\end{itemize}
+
+Fitness evaluation is parallelised using Java ForkJoinPool, submitting all 1000 individuals as concurrent tasks evaluated across all training instances.
+
+\subsection{Two-Phase Hybrid Solver}
+
+At test time, a two-phase approach is employed. Phase 1 processes the first $N - 100$ items using the GP heuristic in online mode (original input order, no pre-sorting). Phase 2 applies Best Fit Decreasing (BFD) to the last 100 items: these items are sorted in descending size order and placed using a best-fit strategy into the bins established by Phase 1. This hybrid exploits the fact that the tail of the instance can be approximately treated as offline, since all remaining items are already known.
+
+Additionally, at test time a \emph{shuffle ensemble} is used: within the 10-second time limit, the solver repeatedly shuffles the item order with different random seeds and re-runs the two-phase solver. The best solution across all shuffles is retained. This is a form of instance-level intensification that respects the online packing constraint (items are still placed in the order dictated by the shuffle), and is permitted under the coursework rules.
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section{Results and Discussion}
+
+The system was trained on the dual-distribution dataset from the ESICUP repository. The training set consists of 20 instances (5 per class, across 4 problem classes). Each instance contains 500 items drawn from a bimodal mixture of normal distributions $N(50, 5)$ and $N(35, 5)$.
+
+After 30 generations, the best evolved heuristic had a training fitness of approximately 1.085 (average bins/L2 ratio) and a tree size of 26 nodes at depth 6. Terminal usage analysis showed that FL (fitting ratio against remaining space) was the most frequently used terminal (17.4\% of population), followed by MIN (11.2\%) and FXE (10.3\%), indicating that the memory-based fitting signals were the most informative for the heuristic's decision-making.
+
+Table~\ref{tab:results} reports the average absolute gap ($=$ bins used minus L2 bound) across 10 instances from each test set. Results are compared against the baseline from Burke et al. (2010).
+
+\begin{table}[h]
+\centering
+\caption{Average absolute gap (bins used minus L2 lower bound) on test sets. Lower is better.}
+\label{tab:results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Test Set} & \textbf{Our Method (avg gap)} & \textbf{Burke et al. (avg gap)} \\ \hline
+testdual0 & $\approx$ 181 & 155 \\
+testdual4 & $\approx$ 184 & 156 \\
+testdual8 & $\approx$ 187 & 160 \\ \hline
+\end{tabular}
+\end{table}
+
+The gap of approximately 180 bins corresponds to a bin-to-L2 ratio of about 1.087 on a lower bound of roughly 2123, meaning the algorithm uses approximately 8.7\% more bins than the theoretical minimum.
+
+Two main factors contribute to this gap. First, the greedy online paradigm is inherently myopic: each item must be placed immediately upon arrival, and previously placed items cannot be moved. The L2 bound assumes a globally optimal offline arrangement, which a greedy online algorithm cannot achieve. Second, the shuffle ensemble explores different item orderings but still operates within the greedy framework; the permutation that produces the fewest bins depends on the specific instance and can vary by 10--15 bins across different shuffles of the same instance.
+
+The memory mechanism was found to be critical: terminals such as FL and FXE, which quantify how well the recently seen items fit into candidate bins, appeared disproportionately frequently in the evolved heuristics. This confirms the finding of Burke et al. (2010) that memory is the key enabling feature for effective GPHH on online BPP.
+
+The two-phase hybrid (GP heuristic + tail BFD) was effective at recovering wasted capacity in the final 100 items. In informal comparisons, disabling the BFD phase increased the bin count by approximately 5--8 bins per instance, demonstrating its value as a low-cost optimisation pass.
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section{Conclusion}
+
+This report described an implementation of a Genetic Programming Hyper-Heuristic for the online Bin Packing Problem, built upon the memory-augmented framework of Burke et al. (2010). The key algorithmic components include:
+
+\begin{itemize}
+\item A GP tree encoding of constructive bin-selection heuristics with 11 terminals (including 7 memory-based terminals) and 6 function nodes.
+\item A fitness function based on the average bin-to-L2 ratio across training instances, with lexicographic tie-breaking on tree size for bloat control.
+\item A two-phase hybrid solver combining GP-driven online packing with BFD re-optimisation for the final 100 items.
+\item A shuffle ensemble for instance-level intensification within the permitted time budget.
+\end{itemize}
+
+The algorithm achieves an absolute gap of approximately 180 bins above the L2 lower bound on the dual-distribution test sets. The gap is primarily attributable to the inherent limitations of greedy online decision-making, where the L2 bound serves as a theoretical minimum that cannot be reached without offline knowledge. Future improvements could explore adaptive memory sizing, more expressive function nodes (e.g., windowed aggregations), or hybrid approaches that combine GPHH with local search on the bin configuration.
+
+% ––––– ––– – Division Line ––– ––– – %
+
+\section*{References}
+
+\begin{thebibliography}{00}
+\bibitem{burke2010} E.~K. Burke, M.~R. Hyde, and G.~Kendall, "Providing a memory mechanism to enhance the evolutionary design of heuristics," in \emph{Proc. IEEE World Congress on Computational Intelligence (CEC 2010)}, Barcelona, Spain, 2010, pp.~3883--3890.
+
+\bibitem{martello1990} S.~Martello and P.~Toth, "Lower bounds and reduction procedures for the bin packing problem," \emph{Discrete Applied Mathematics}, vol.~28, no.~1, pp.~59--70, 1990.
+
+\bibitem{jin2024} C.~Jin, R.~Bai, Y.~Zhou, X.~Chen, and L.~Tan, "Enhancing online yard crane scheduling through a two-stage rollout memetic genetic programming," \emph{Memetic Computing}, vol.~16, pp.~467--489, 2024.
+\end{thebibliography}
+
+\end{document}

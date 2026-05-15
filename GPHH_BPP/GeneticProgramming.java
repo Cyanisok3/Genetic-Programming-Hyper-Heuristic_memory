@@ -12,29 +12,63 @@ import java.util.concurrent.RecursiveTask;
  */
 public class GeneticProgramming {
 
-    public static final int POPULATION_SIZE = 1000;
-    public static final int MAX_GENERATIONS = 30;
-    public static final double CROSSOVER_RATE = 0.85;
+    public static final int POPULATION_SIZE = 300;
+    public static final int MAX_GENERATIONS = 100;
+    public static final double CROSSOVER_RATE = 0.70;
     public static final double MUTATION_RATE = 0.10;
-    public static final double REPRODUCTION_RATE = 0.05;
+    public static final double REPRODUCTION_RATE = 0.10;
     public static final int TOURNAMENT_SIZE = 7;
-    public static final int ELITE_SIZE = 2;
+    public static final int ELITE_SIZE = 1;
     public static final int MIN_DEPTH = 4;
     public static final int MAX_DEPTH = 6;
     public static final int TERMINAL_COUNT = 11;
     private static final double TREE_PENALTY_ALPHA = 0.0;
 
+    private static final double MUTATION_RATE_MIN = 0.05;
+    private static final double MUTATION_RATE_MAX = 0.50;
+    private static final double MUTATION_RATE_STEP = 0.02;
+    private static final int STAGNATION_THRESHOLD = 3;
+    private static final double IMPROVEMENT_THRESHOLD_PCT = 0.001; // 0.1% relative improvement to decrease rate
+
     private final Random rand;
     private final ForkJoinPool forkJoinPool;
+    private double adaptiveMutationRate;
+    private int stagnationCounter;
+    private double lastGenBestFitness;
 
     public GeneticProgramming() {
         this.rand = new Random();
         this.forkJoinPool = ForkJoinPool.commonPool();
+        this.adaptiveMutationRate = MUTATION_RATE;
+        this.stagnationCounter = 0;
+        this.lastGenBestFitness = Double.POSITIVE_INFINITY;
     }
 
     public GeneticProgramming(long seed) {
         this.rand = new Random(seed);
         this.forkJoinPool = ForkJoinPool.commonPool();
+        this.adaptiveMutationRate = MUTATION_RATE;
+        this.stagnationCounter = 0;
+        this.lastGenBestFitness = Double.POSITIVE_INFINITY;
+    }
+
+    private void updateAdaptiveMutationRate(double currentBestFitness) {
+        double improvement = lastGenBestFitness - currentBestFitness;
+        double relativeImprovement = improvement / lastGenBestFitness;
+
+        if (relativeImprovement > IMPROVEMENT_THRESHOLD_PCT) {
+            stagnationCounter = 0;
+            adaptiveMutationRate = Math.max(MUTATION_RATE_MIN,
+                adaptiveMutationRate - MUTATION_RATE_STEP);
+        } else {
+            stagnationCounter++;
+            if (stagnationCounter >= STAGNATION_THRESHOLD) {
+                adaptiveMutationRate = Math.min(MUTATION_RATE_MAX,
+                    adaptiveMutationRate + MUTATION_RATE_STEP);
+                stagnationCounter = 0;
+            }
+        }
+        lastGenBestFitness = currentBestFitness;
     }
 
     /**
@@ -70,6 +104,10 @@ public class GeneticProgramming {
             return null;
         }
 
+        adaptiveMutationRate = MUTATION_RATE;
+        stagnationCounter = 0;
+        lastGenBestFitness = Double.POSITIVE_INFINITY;
+
         Population population = new Population(POPULATION_SIZE);
         for (int i = 0; i < POPULATION_SIZE; i++) {
             GPNode tree = createRandomTree(MIN_DEPTH, MAX_DEPTH);
@@ -97,7 +135,10 @@ public class GeneticProgramming {
                 bestOverall = best.copy();
             }
 
-            System.out.println("Gen " + gen + ": best=" + String.format("%.6f", best.getFitness()));
+            System.out.println("Gen " + gen + ": best=" + String.format("%.6f", best.getFitness()) +
+                " mut=" + String.format("%.2f", adaptiveMutationRate));
+
+            updateAdaptiveMutationRate(best.getFitness());
 
             Population newPop = new Population();
             population.sort();
@@ -112,11 +153,11 @@ public class GeneticProgramming {
                     Individual parent1 = tournamentSelect(population);
                     Individual parent2 = tournamentSelect(population);
                     Individual child = crossover(parent1, parent2);
-                    if (rand.nextDouble() < MUTATION_RATE) {
+                    if (rand.nextDouble() < adaptiveMutationRate) {
                         mutate(child);
                     }
                     newPop.add(child);
-                } else if (r < CROSSOVER_RATE + MUTATION_RATE) {
+                } else if (r < CROSSOVER_RATE + adaptiveMutationRate) {
                     Individual parent = tournamentSelect(population);
                     Individual child = parent.copy();
                     mutate(child);

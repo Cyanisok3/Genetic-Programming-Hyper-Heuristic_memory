@@ -8,7 +8,7 @@ import java.util.List;
  */
 public class Memory implements Serializable {
     
-    public static final int MEMORY_SIZE = 100;
+    public static final int MEMORY_SIZE = 200;
     
     private List<Integer> items;
     private int totalSum;

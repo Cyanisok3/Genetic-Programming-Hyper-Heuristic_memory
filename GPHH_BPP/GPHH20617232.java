@@ -15,9 +15,9 @@ import java.util.List;
  *
  * Compile: javac -d out *.java
  */
-public class Main {
+public class GPHH20617232 {
 
-    private static final long DEFAULT_TIME_LIMIT = 10000;
+    private static final long DEFAULT_TIME_LIMIT = 9999;
     private static final String SERIALIZED_HEURISTIC = "best_heuristic.ser";
     private static final int NUM_CLASSES = 4;
 

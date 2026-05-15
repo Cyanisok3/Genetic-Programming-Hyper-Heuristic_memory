@@ -29,8 +29,7 @@ The GP evolves a **tree-structured heuristic** that, at each step, scores every 
 
 This implementation differs from the original paper in several ways. These deviations are documented here so the gap between the standard approach and this code is transparent.
 
-1. **Training set** — Burke 2010 trains on 10 instances (5 × class1 + 5 × class2). This implementation trains on 20 instances (5 × class1 + 5 × class2 + 5 × class3 + 5 × class4), covering all four dual-distribution classes.
-2. **Fitness evaluation order** — Each generation, all individuals are evaluated on all training instances in natural (file-system) order. No shuffling of instances or items occurs anywhere during training or evaluation.
+
 3. **Parallel fitness evaluation** — All individuals' fitnesses are evaluated in parallel using `ForkJoinPool.commonPool()`. Burke 2010's original evaluation is sequential.
 4. **Tree size control** — This implementation uses **lexicographic tournament selection**: fitness is the primary comparison key; tree size only matters when fitness ties. `TREE_PENALTY_ALPHA` is hardcoded to 0.0.
 5. **Test mode multiple trials** — Test mode runs the evolved heuristic across up to ~400 random shuffles within the 10s time budget and keeps the best (fewest bins) result. Random tie-breaking (same seed, independent `Random` stream) adds diversity when multiple bins have equal GP scores.
@@ -168,20 +167,6 @@ The core insight is that online BPP is **deterministic given the item order**: t
 - ~400 trials fit within a 10s budget (~23ms per trial)
 - Random tie-breaking uses the same seed as the shuffle but is otherwise independent — the two `Random` instances derived from the same seed generate different sequences
 - The large gap (~187 bins over L2) on testdual4 reflects that the evolved heuristic was trained exclusively on unimodal distributions and is unaware of the bimodal (33/50 peak mix) structure in test data
-
-### 2.2 Remaining Axes (Not Yet Implemented)
-
-Multiple trials with shuffle (Axis 1) is implemented. Five axes remain:
-
-**Axis 2: Bimodal Training Data** — Generate class5 (33/50 equal mix) and class6 (33-strong/50-weak mix) training instances so the GP learns to recognize and exploit bimodal distributions.
-
-**Axis 3: Per-Class Specialized Heuristics** — Train one heuristic per class and use ensemble selection at test time.
-
-**Axis 4: GP Terminal Enhancements** — Add new terminals (e.g., variable-threshold FXE/FXL, bin item count) to give the GP more expressive power.
-
-**Axis 5: Local Search Post-Processing** — After the heuristic solves, run a pairwise-swap improvement pass over bins.
-
-**Axis 6: Adaptive Tie-Breaking Strategy** — Dynamically adjust tie-breaking behavior based on observed piece-size distribution (e.g., more exploration for bimodal instances).
 
 ---
 

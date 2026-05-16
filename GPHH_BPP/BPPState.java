@@ -26,25 +26,6 @@ public class BPPState {
         this.memory = other.memory.copy();
     }
 
-    public void nextItem() {
-        currentPosition++;
-        if (currentPosition < items.length) {
-            memory.addItem(items[currentPosition - 1]);
-        }
-    }
-
-    public void placeItem(int itemSize) {
-        binFullness += itemSize;
-    }
-
-    public void startNewBin(int itemSize) {
-        binFullness = itemSize;
-    }
-
-    public void resetBin() {
-        binFullness = 0;
-    }
-
     public int getPieceSize() {
         if (currentPosition >= items.length) return 0;
         return items[currentPosition];
@@ -92,10 +73,6 @@ public class BPPState {
 
     public void setBinFullness(int fullness) {
         this.binFullness = fullness;
-    }
-
-    public boolean isFinished() {
-        return currentPosition >= items.length;
     }
 
     public BPPState copy() {

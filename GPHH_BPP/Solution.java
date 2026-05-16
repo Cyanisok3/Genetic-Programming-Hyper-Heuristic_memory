@@ -10,8 +10,8 @@ import java.util.List;
 public class Solution {
     
     private String instanceName;
-    private List<Bin> bins;
-    private int objective;  // Number of bins used (or total fullness depending on format)
+    private final List<Bin> bins;
+    private int objective;
     private double l2Bound;
     
     public Solution(String instanceName, List<Bin> bins) {
@@ -45,39 +45,6 @@ public class Solution {
             
             // Second line: objective and L2 bound
             writer.write("obj=\t" + objective + "\t" + (int) l2Bound);
-            writer.newLine();
-            
-            // Each bin: items in that bin
-            for (Bin bin : bins) {
-                List<Integer> items = bin.getItems();
-                if (items.isEmpty()) {
-                    writer.newLine();
-                } else {
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < items.size(); i++) {
-                        if (i > 0) {
-                            sb.append(" ");
-                        }
-                        sb.append(items.get(i));
-                    }
-                    writer.write(sb.toString());
-                    writer.newLine();
-                }
-            }
-        }
-    }
-    
-    /**
-     * Save solution in the sample output format (tab-separated).
-     */
-    public void saveFormat2(String filePath) throws IOException {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            // First line: instance name
-            writer.write(instanceName);
-            writer.newLine();
-            
-            // Second line: obj= value (no L2 bound)
-            writer.write("obj=\t" + objective);
             writer.newLine();
             
             // Each bin: items in that bin

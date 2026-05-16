@@ -145,25 +145,9 @@ public class GPHH20617232 {
             int capacity = instance.getCapacity();
             int[] items = instance.getItems();
 
-            long deadline = System.currentTimeMillis() + maxTime;
-            int trialIndex = 0;
-            int bestBinCount = Integer.MAX_VALUE;
-            Solution bestSolution = null;
-
-            while (System.currentTimeMillis() < deadline) {
-                long seed = System.nanoTime() ^ (long) trialIndex;
-                Solution sol = solver.solveWithOrder(items, heuristic, capacity, seed);
-                if (sol.getBinCount() < bestBinCount) {
-                    bestBinCount = sol.getBinCount();
-                    bestSolution = sol;
-                }
-                trialIndex++;
-            }
-
-            if (bestSolution == null) {
-                bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
-                bestBinCount = bestSolution.getBinCount();
-            }
+            // Items processed in original order to match checker expectations
+            Solution bestSolution = solver.solveWithOrder(items, heuristic, capacity, null);
+            int bestBinCount = bestSolution.getBinCount();
 
             bestSolution.setInstanceName(instance.getName());
             bestSolution.setL2Bound(l2Bound);

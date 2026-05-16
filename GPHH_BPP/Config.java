@@ -10,14 +10,14 @@ public final class Config {
     // ======================
     // Evolution parameters
     // ======================
-    public final int POPULATION_SIZE = 300;
-    public final int MAX_GENERATIONS = 50;
+    public final int POPULATION_SIZE = 1000;
+    public final int MAX_GENERATIONS = 70;
     public final double CROSSOVER_RATE = 0.70;
     public final double MUTATION_RATE = 0.10;
     public final double REPRODUCTION_RATE = 0.10;
     public final int TOURNAMENT_SIZE = 7;
     public final int ELITE_SIZE = 1;
-    public final int MIN_DEPTH = 4;
+    public final int MIN_DEPTH = 2;
     public final int MAX_DEPTH = 6;
     public final int TERMINAL_COUNT = 11;
 

@@ -2,14 +2,7 @@
  * Calculator for L2 lower bound (Martello & Toth, 1990).
  */
 public class L2BoundCalculator {
-    
-    /**
-     * Calculate L2 lower bound for a BPP instance.
-     * LB2 = max(ceil(sum(s_i)/C), count of items > C/2)
-     * 
-     * @param instance BPP instance
-     * @return L2 lower bound
-     */
+
     public static double calculate(BPPInstance instance) {
         int capacity = instance.getCapacity();
         int[] items = instance.getItems();

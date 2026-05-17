@@ -18,7 +18,7 @@ public class BPPInstance {
     private int capacity;
     private int problemClass;
 
-    private static Map<String, Double> l2BoundCache = null;
+    private static Map<String, Double> l2BoundCache;
 
     public BPPInstance(String name, int[] items, int capacity) {
         this(name, items, capacity, -1);
@@ -88,10 +88,6 @@ public class BPPInstance {
 
     public int[] getItems() {
         return items;
-    }
-
-    public int getItem(int index) {
-        return items[index];
     }
 
     public int getItemCount() {

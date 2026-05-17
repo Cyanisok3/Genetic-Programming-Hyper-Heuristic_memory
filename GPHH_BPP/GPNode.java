@@ -7,14 +7,14 @@ import java.util.Random;
  * Abstract base class for all nodes in the GP tree.
  */
 public abstract class GPNode implements Serializable {
-    
+
     protected GPNode parent;
     protected List<GPNode> children;
-    
+
     public GPNode() {
         this.children = new ArrayList<>();
     }
-    
+
     public GPNode(List<GPNode> children) {
         this.children = children;
     }
@@ -31,17 +31,9 @@ public abstract class GPNode implements Serializable {
      * @return A deep copy of this node
      */
     public abstract GPNode copy();
-    
-    /**
-     * Get the depth of this node in the tree.
-     * @return Depth (0 for root)
-     */
+
     public abstract int getDepth();
-    
-    /**
-     * Get the number of nodes in this subtree.
-     * @return Number of nodes including this one
-     */
+
     public int getSize() {
         int size = 1;
         for (GPNode child : children) {
@@ -77,28 +69,17 @@ public abstract class GPNode implements Serializable {
     public GPNode getParent() {
         return parent;
     }
-    
+
     public void setParent(GPNode parent) {
         this.parent = parent;
     }
-    
+
     public List<GPNode> getChildren() {
-        return children;
+        return new ArrayList<>(children);
     }
-    
-    public GPNode getChild(int index) {
-        return children.get(index);
-    }
-    
+
     public void addChild(GPNode child) {
         child.setParent(this);
         children.add(child);
-    }
-    
-    public void setChildren(List<GPNode> children) {
-        this.children = children;
-        for (GPNode child : children) {
-            child.setParent(this);
-        }
     }
 }

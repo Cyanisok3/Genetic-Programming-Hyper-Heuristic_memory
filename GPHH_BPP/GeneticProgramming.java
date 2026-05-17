@@ -14,7 +14,6 @@ public class GeneticProgramming {
 
     private final Random rand;
     private final ForkJoinPool forkJoinPool;
-
     private final Config cfg = Config.INSTANCE;
 
     public GeneticProgramming() {
@@ -29,8 +28,8 @@ public class GeneticProgramming {
         cfg.resetAdaptiveMutation();
     }
 
-    private void updateAdaptiveMutationRate(double currentBestFitness) {
-        cfg.updateAdaptiveMutationRate(currentBestFitness);
+    private void updateAdaptiveMutationRate(double currentBestFitness, int generation) {
+        cfg.updateAdaptiveMutationRate(currentBestFitness, generation);
     }
 
     /**
@@ -54,7 +53,7 @@ public class GeneticProgramming {
     /**
      * Evolve a single GP heuristic on the given training set.
      * All instances are evaluated in natural order each generation (no shuffling).
-     * Fitness evaluation is parallelized across the population using ForkJoinPool.
+     * Fitness evaluation is *parallelized* across the population using ForkJoinPool.
      * Returns the best individual found across all generations (tracked via elitism).
      */
     public Heuristic evolve(List<BPPInstance> trainingSet) {
@@ -71,7 +70,7 @@ public class GeneticProgramming {
 
         Population population = new Population(cfg.POPULATION_SIZE);
         for (int i = 0; i < cfg.POPULATION_SIZE; i++) {
-            GPNode tree = createRandomTree(cfg.MIN_DEPTH, cfg.MAX_DEPTH);
+            GPNode tree = createRandomTree(cfg.MIN_DEPTH, cfg.getMAX_DEPTH());
             population.add(new Individual(tree));
         }
 
@@ -96,14 +95,14 @@ public class GeneticProgramming {
                 bestOverall = best.copy();
             }
 
+            updateAdaptiveMutationRate(best.getFitness(), gen);
+
             System.out.println("Gen " + gen + ": best=" + String.format("%.6f", best.getFitness()) +
                 " mut=" + String.format("%.2f", cfg.getAdaptiveMutationRate()));
 
-            updateAdaptiveMutationRate(best.getFitness());
-
             Population newPop = new Population();
             population.sort();
-            for (int i = 0; i < Math.min(cfg.ELITE_SIZE, population.size()); i++) {
+            for (int i = 0; i < Math.min(cfg.getELITE_SIZE(), population.size()); i++) {
                 newPop.add(population.get(i).copy());
             }
 
@@ -137,7 +136,7 @@ public class GeneticProgramming {
 
     /**
      * Fitness = average (bins_used / L2_bound) across all training instances.
-     * Tree size is handled by lexicographic comparison in selection (smaller wins tie).
+     * Tree size is handled by 'smaller wins tie'.
      */
     private double evaluateFitness(Heuristic h, List<BPPInstance> trainingSet) {
         double sum = 0.0;
@@ -153,11 +152,12 @@ public class GeneticProgramming {
 
     /**
      * Tournament selection with lexicographic comparison:
-     * primary key = raw fitness, secondary key = tree size.
+     * 1. raw fitness
+     * 2. tree size
      */
     public Individual tournamentSelect(Population population) {
         Individual best = null;
-        for (int i = 0; i < cfg.TOURNAMENT_SIZE; i++) {
+            for (int i = 0; i < cfg.getTOURNAMENT_SIZE(); i++) {
             Individual candidate = population.get(rand.nextInt(population.size()));
             if (best == null || candidate.compareToLexicographic(best) < 0) {
                 best = candidate;
@@ -173,8 +173,8 @@ public class GeneticProgramming {
         GPNode tree1 = parent1.getTree().copy();
         GPNode tree2 = parent2.getTree().copy();
 
-        List<GPNode> nodes1 = collectValidNodes(tree1, cfg.MAX_DEPTH, 0);
-        List<GPNode> nodes2 = collectValidNodes(tree2, cfg.MAX_DEPTH, 0);
+        List<GPNode> nodes1 = collectValidNodes(tree1, cfg.getMAX_DEPTH(), 0);
+        List<GPNode> nodes2 = collectValidNodes(tree2, cfg.getMAX_DEPTH(), 0);
 
         GPNode node1 = nodes1.get(rand.nextInt(nodes1.size()));
         GPNode node2 = nodes2.get(rand.nextInt(nodes2.size()));
@@ -201,7 +201,7 @@ public class GeneticProgramming {
      */
     public void mutate(Individual individual) {
         GPNode tree = individual.getTree();
-        List<GPNode> nodes = collectValidNodes(tree, cfg.MAX_DEPTH, 0);
+        List<GPNode> nodes = collectValidNodes(tree, cfg.getMAX_DEPTH(), 0);
         GPNode node = nodes.get(rand.nextInt(nodes.size()));
         int currentDepth = getNodeDepth(tree, node, 0);
 
@@ -213,7 +213,7 @@ public class GeneticProgramming {
             tree.replaceNode(node, newTerminal);
         } else {
             int roomLeft = cfg.MAX_DEPTH - currentDepth;
-            int maxNewDepth = Math.max(2, Math.min(roomLeft - 1, cfg.MAX_DEPTH / 2));
+            int maxNewDepth = Math.max(2, Math.min(roomLeft - 1, cfg.getMAX_DEPTH() / 2));
             GPNode newSubtree = createRandomTreeStatic(1, maxNewDepth, rand);
             tree.replaceNode(node, newSubtree);
         }
@@ -242,38 +242,38 @@ public class GeneticProgramming {
         }
         int type = rand.nextInt(6);
         switch (type) {
-            case 0: {
+            case 0 -> {
                 GPNode left = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode right = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new AddNode(left, right);
             }
-            case 1: {
+            case 1 -> {
                 GPNode left = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode right = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new SubtractNode(left, right);
             }
-            case 2: {
+            case 2 -> {
                 GPNode left = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode right = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new MultiplyNode(left, right);
             }
-            case 3: {
+            case 3 -> {
                 GPNode left = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode right = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new DivideNode(left, right);
             }
-            case 4: {
+            case 4 -> {
                 GPNode child = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new FIFunction(child);
             }
-            case 5: {
+            case 5 -> {
                 GPNode a = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode b = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode c = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode d = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new IfLessThanNode(a, b, c, d);
             }
-            default: {
+            default -> {
                 GPNode left = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 GPNode right = createTreeStatic(targetDepth - 1, minDepth, maxDepth, rand);
                 return new AddNode(left, right);
@@ -284,21 +284,43 @@ public class GeneticProgramming {
     private static GPNode createRandomTerminalStatic(int minDepth, int maxDepth, Random rand) {
         int type = rand.nextInt(Config.INSTANCE.TERMINAL_COUNT);
         switch (type) {
-            case 0: return new PieceSizeTerminal();
-            case 1: return new BinEmptinessTerminal();
-            case 2: return new SpaceLeftTerminal();
-            case 3: return new MemoryMinTerminal();
-            case 4: return new MemoryMaxTerminal();
-            case 5: return new MemoryAveTerminal();
-            case 6: return new MemoryFETerminal();
-            case 7: return new MemoryFLTerminal();
-            case 8: return new MemoryFXETerminal();
-            case 9: return new MemoryFXLTerminal();
-            case 10: {
+            case 0 -> {
+                return new PieceSizeTerminal();
+            }
+            case 1 -> {
+                return new BinEmptinessTerminal();
+            }
+            case 2 -> {
+                return new SpaceLeftTerminal();
+            }
+            case 3 -> {
+                return new MemoryMinTerminal();
+            }
+            case 4 -> {
+                return new MemoryMaxTerminal();
+            }
+            case 5 -> {
+                return new MemoryAveTerminal();
+            }
+            case 6 -> {
+                return new MemoryFETerminal();
+            }
+            case 7 -> {
+                return new MemoryFLTerminal();
+            }
+            case 8 -> {
+                return new MemoryFXETerminal();
+            }
+            case 9 -> {
+                return new MemoryFXLTerminal();
+            }
+            case 10 -> {
                 double val = EphemeralConstantTerminal.CONSTANTS[rand.nextInt(EphemeralConstantTerminal.CONSTANTS.length)];
                 return new EphemeralConstantTerminal(val);
             }
-            default: return new PieceSizeTerminal();
+            default -> {
+                return new PieceSizeTerminal();
+            }
         }
     }
 
@@ -336,35 +358,57 @@ public class GeneticProgramming {
 
     public GPNode createRandomFunction() {
         int type = rand.nextInt(6);
-        switch (type) {
-            case 0: return new AddNode();
-            case 1: return new SubtractNode();
-            case 2: return new MultiplyNode();
-            case 3: return new DivideNode();
-            case 4: return new FIFunction();
-            case 5: return new IfLessThanNode();
-            default: return new AddNode();
-        }
+        return switch (type) {
+            case 0 -> new AddNode();
+            case 1 -> new SubtractNode();
+            case 2 -> new MultiplyNode();
+            case 3 -> new DivideNode();
+            case 4 -> new FIFunction();
+            case 5 -> new IfLessThanNode();
+            default -> new AddNode();
+        };
     }
 
     public GPNode createRandomTerminal() {
         int type = rand.nextInt(cfg.TERMINAL_COUNT);
         switch (type) {
-            case 0: return new PieceSizeTerminal();
-            case 1: return new BinEmptinessTerminal();
-            case 2: return new SpaceLeftTerminal();
-            case 3: return new MemoryMinTerminal();
-            case 4: return new MemoryMaxTerminal();
-            case 5: return new MemoryAveTerminal();
-            case 6: return new MemoryFETerminal();
-            case 7: return new MemoryFLTerminal();
-            case 8: return new MemoryFXETerminal();
-            case 9: return new MemoryFXLTerminal();
-            case 10: {
+            case 0 -> {
+                return new PieceSizeTerminal();
+            }
+            case 1 -> {
+                return new BinEmptinessTerminal();
+            }
+            case 2 -> {
+                return new SpaceLeftTerminal();
+            }
+            case 3 -> {
+                return new MemoryMinTerminal();
+            }
+            case 4 -> {
+                return new MemoryMaxTerminal();
+            }
+            case 5 -> {
+                return new MemoryAveTerminal();
+            }
+            case 6 -> {
+                return new MemoryFETerminal();
+            }
+            case 7 -> {
+                return new MemoryFLTerminal();
+            }
+            case 8 -> {
+                return new MemoryFXETerminal();
+            }
+            case 9 -> {
+                return new MemoryFXLTerminal();
+            }
+            case 10 -> {
                 double val = EphemeralConstantTerminal.CONSTANTS[rand.nextInt(EphemeralConstantTerminal.CONSTANTS.length)];
                 return new EphemeralConstantTerminal(val);
             }
-            default: return new PieceSizeTerminal();
+            default -> {
+                return new PieceSizeTerminal();
+            }
         }
     }
 }

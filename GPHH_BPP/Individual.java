@@ -4,24 +4,27 @@ import java.io.Serializable;
  * Represents a single GP individual (heuristic).
  */
 public class Individual implements Serializable {
-    
+
+    private static final long serialVersionUID = 1L;
+
     private Heuristic heuristic;
     private double fitness;
-    
+
     public Individual(Heuristic heuristic) {
         this.heuristic = heuristic;
-        this.fitness = Double.POSITIVE_INFINITY;  // Default worst fitness
+        this.fitness = Double.POSITIVE_INFINITY;
     }
-    
+
+    public Individual(Heuristic heuristic, double fitness) {
+        this.heuristic = heuristic;
+        this.fitness = fitness;
+    }
+
     public Individual(GPNode root) {
         this.heuristic = new Heuristic(root);
         this.fitness = Double.POSITIVE_INFINITY;
     }
-    
-    /**
-     * Create a copy of this individual.
-     * @return Deep copy
-     */
+
     public Individual copy() {
         Individual copy = new Individual(heuristic.copy());
         copy.fitness = this.fitness;
@@ -33,25 +36,19 @@ public class Individual implements Serializable {
     public Heuristic getHeuristic() {
         return heuristic;
     }
-    
+
     public GPNode getTree() {
         return heuristic.getRoot();
     }
-    
+
     public double getFitness() {
         return fitness;
     }
-    
+
     public void setFitness(double fitness) {
         this.fitness = fitness;
     }
 
-    /**
-     * Lexicographic comparison: first by raw fitness, then by tree size (smaller wins).
-     * Used by tournament selection and population sorting to naturally discourage bloat
-     * without an alpha parameter.
-     * @return negative if this is better, positive if other is better
-     */
     public int compareToLexicographic(Individual other) {
         int fitnessCmp = Double.compare(this.fitness, other.fitness);
         if (fitnessCmp != 0) return fitnessCmp;

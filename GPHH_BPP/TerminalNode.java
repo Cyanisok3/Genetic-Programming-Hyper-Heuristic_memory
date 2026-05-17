@@ -38,8 +38,7 @@ class PieceSizeTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -63,8 +62,7 @@ class BinEmptinessTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -88,8 +86,7 @@ class SpaceLeftTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -113,8 +110,7 @@ class MemoryMinTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -138,8 +134,7 @@ class MemoryMaxTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -163,8 +158,7 @@ class MemoryAveTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -188,8 +182,7 @@ class MemoryFETerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -213,8 +206,7 @@ class MemoryFLTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -240,8 +232,7 @@ class MemoryFXETerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -267,8 +258,7 @@ class MemoryFXLTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -306,8 +296,7 @@ class EphemeralConstantTerminal extends TerminalNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     public double getValue() {
         return value;

@@ -50,8 +50,7 @@ class AddNode extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -84,8 +83,7 @@ class SubtractNode extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -118,8 +116,7 @@ class MultiplyNode extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -157,8 +154,7 @@ class DivideNode extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -189,8 +185,7 @@ class FIFunction extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {
@@ -232,8 +227,7 @@ class IfLessThanNode extends FunctionNode {
     }
 
     @Override
-    public void mutate(Random rand) {
-    }
+    public void mutate(Random rand) {}
 
     @Override
     public String toString() {

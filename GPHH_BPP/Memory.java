@@ -12,28 +12,23 @@ public class Memory implements Serializable {
     // Sliding window size: how many recent items to remember.
     // 200 covers ~2x the bin capacity in dual-distribution instances.
     public static final int MEMORY_SIZE = 200;
-    
+
     private List<Integer> items;
     private int totalSum;
     private int count;
-    
+
     public Memory() {
         this.items = new ArrayList<>();
         this.totalSum = 0;
         this.count = 0;
     }
-    
+
     public Memory(Memory other) {
         this.items = new ArrayList<>(other.items);
         this.totalSum = other.totalSum;
         this.count = other.count;
     }
-    
-    /**
-     * Add an item to memory.
-     * If memory is full, removes the oldest item.
-     * @param size Size of the item to add
-     */
+
     public void addItem(int size) {
         if (items.size() >= MEMORY_SIZE) {
             int removed = items.remove(0);
@@ -44,11 +39,7 @@ public class Memory implements Serializable {
         totalSum += size;
         count++;
     }
-    
-    /**
-     * Get the minimum item size in memory.
-     * @return Minimum size, or 0 if memory is empty
-     */
+
     public double getMin() {
         if (items.isEmpty()) {
             return 0.0;
@@ -61,11 +52,7 @@ public class Memory implements Serializable {
         }
         return min;
     }
-    
-    /**
-     * Get the maximum item size in memory.
-     * @return Maximum size, or 0 if memory is empty
-     */
+
     public double getMax() {
         if (items.isEmpty()) {
             return 0.0;
@@ -78,11 +65,7 @@ public class Memory implements Serializable {
         }
         return max;
     }
-    
-    /**
-     * Get the average item size in memory.
-     * @return Average size, or 0 if memory is empty
-     */
+
     public double getAverage() {
         if (items.isEmpty()) {
             return 0.0;
@@ -148,36 +131,21 @@ public class Memory implements Serializable {
         }
         return (double) below / count;
     }
-    
-    /**
-     * Get the number of items in memory.
-     * @return Number of items
-     */
+
     public int size() {
         return items.size();
     }
-    
-    /**
-     * Check if memory is empty.
-     * @return true if empty
-     */
+
     public boolean isEmpty() {
         return items.isEmpty();
     }
-    
-    /**
-     * Clear all items from memory.
-     */
+
     public void clear() {
         items.clear();
         totalSum = 0;
         count = 0;
     }
-    
-    /**
-     * Create a deep copy of this memory.
-     * @return A new Memory instance with the same contents
-     */
+
     public Memory copy() {
         return new Memory(this);
     }

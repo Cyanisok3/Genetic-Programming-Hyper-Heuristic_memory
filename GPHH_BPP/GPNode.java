@@ -8,6 +8,8 @@ import java.util.Random;
  */
 public abstract class GPNode implements Serializable {
 
+    private static final long serialVersionUID = -8539652797191609763L; // to ensure serialization compatibility
+
     protected GPNode parent;
     protected List<GPNode> children;
 

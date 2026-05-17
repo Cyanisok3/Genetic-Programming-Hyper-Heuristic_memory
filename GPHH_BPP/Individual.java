@@ -5,8 +5,6 @@ import java.io.Serializable;
  */
 public class Individual implements Serializable {
 
-    private static final long serialVersionUID = 1L;
-
     private Heuristic heuristic;
     private double fitness;
 

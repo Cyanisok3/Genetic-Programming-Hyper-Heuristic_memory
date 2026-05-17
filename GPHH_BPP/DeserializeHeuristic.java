@@ -1,6 +1,11 @@
 import java.io.FileInputStream;
 import java.io.ObjectInputStream;
 
+/**
+ * Deserialize the heuristic from the file and print the structure. 
+ * (I admit it's troublesome to use .ser file to store the heuristics..)
+ */
+
 public class DeserializeHeuristic {
     public static void main(String[] args) throws Exception {
         try (ObjectInputStream in = new ObjectInputStream(

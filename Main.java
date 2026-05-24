@@ -3,7 +3,7 @@ import java.nio.file.*;
 import java.util.*;
 
 // Main entry point for training and testing GP-based hyper-heuristics on bin packing.
-public class GPHH20617232 {
+public class Main {
 
     // Fixed seeds for reproducible multi-tree ensemble training.
     // Each tree is trained with a distinct seed, ensuring deterministic diversity

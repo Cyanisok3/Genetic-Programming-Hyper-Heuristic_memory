@@ -1,27 +1,33 @@
-# GPHH for Online Bin Packing
+# Genetic Programming Hyper-Heuristic for Online Bin Packing
 
-Qingyang LIU (20617232)
+A Java implementation of a streamlined GPHH framework that evolves constructive heuristics for the online bin packing problem (BPP), where items arrive sequentially with no lookahead.
 
-## Compile, Train and Test
+## Overview
 
-I actually like to put these cache files into the *out*..
+This project implements a genetic programming hyper-heuristic (GPHH) that evolves tree-structured scoring heuristics. Each GP tree evaluates candidate bins and selects the best placement for the current item. The system uses an ensemble of 5 independently-trained trees with per-decision majority voting at test time.  
+
+## Key Features
+
+- **Minimalist terminal set**: 4 terminals (S, E, IsNew, C) focusing on immediate bin-state information
+- **Compact function set**: +, -, *, /, MAX, IFLTE
+- **Falkenauer fitness**: Balances bin count and bin fullness uniformity
+- **5-tree ensemble voting**: Aggregates decisions from multiple heuristics for robust packing
+- **Parallel evaluation**: ForkJoinPool-based parallel fitness computation
+
+## Quick Start
 
 ```bash
-javac -d out *.java
-```
+# Compile
+javac -d out GPHH_BPP/*.java
 
-```bash
+# Train (5 trees saved to best_heuristics/)
 java -cp out GPHH20617232 --train
-```
-``Note that all trained heuristics (5 trees once) are stored in 'best_heuristics/', and are loaded automatically when testing.``
 
-```bash
-java -cp out GPHH20617232 -s INSTANCE_FILE -o SOLUTION_FILE [-t MAX_TIME]
-java -cp out GPHH20617232 -s dualdistribution/test/testdual4/binpack0.txt -o sol_4_0.txt -t 10000
-```
+# Test on a single instance
+java -cp out GPHH20617232 -s dualdistribution/test/testdual4/binpack0.txt -o solution.txt
 
-```bash
-java bpp_checker -s dualdistribution/test/testdual4/binpack0.txt -c sol_4_0.txt
+# Verify solution
+java bpp_checker -s dualdistribution/test/testdual4/binpack0.txt -c solution.txt
 ```
 
 ## Test Results

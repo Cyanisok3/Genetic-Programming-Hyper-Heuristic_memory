@@ -2,9 +2,21 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
+// Main entry point for training and testing GP-based hyper-heuristics on bin packing.
 public class GPHH20617232 {
-    
-    // ================== CW 要求的入口 ==================
+
+    // Fixed seeds for reproducible multi-tree ensemble training.
+    // Each tree is trained with a distinct seed, ensuring deterministic diversity
+    // ...and making experimental results reproducible.
+    private static final long[] ENSEMBLE_SEEDS = {
+        1716000000000L,
+        171600000999L,
+        171600001998L,
+        171600002997L,
+        171600003996L
+    };
+
+    // Parses command-line arguments and dispatches to training or testing mode.
     public static void main(String[] args) throws Exception {
         boolean trainMode = false;
         String instancePath = null;
@@ -28,12 +40,12 @@ public class GPHH20617232 {
         }
     }
 
-    // ================== 测试执行流 (压榨10秒时间) ==================
+    // Loads an instance, runs the ensemble of trained trees, and writes the solution file.
     private static void runTestingFlow(String instancePath, String solutionPath, long timeLimit) throws Exception {
         System.out.println("Loading instance: " + instancePath);
         InstanceData data = parseInstance(instancePath);
-        
-        // 读取所有训练好的投票树 (Ensemble)
+
+        // Load all serialized GP trees for ensemble voting.
         File dir = new File("best_heuristics");
         List<GPNode> forest = new ArrayList<>();
         if (dir.exists() && dir.isDirectory()) {
@@ -44,45 +56,41 @@ public class GPHH20617232 {
             }
         }
         if (forest.isEmpty()) throw new RuntimeException("No .ser files found in best_heuristics/ folder! Run --train first.");
-        
+
         System.out.println("Loaded " + forest.size() + " heuristics for Ensemble Voting.");
-        
+
         long start = System.currentTimeMillis();
         List<Bin> resultBins = BPPEnv.solveEnsemble(data.items, data.capacity, forest);
         long elapsed = System.currentTimeMillis() - start;
-        
+
         int obj = resultBins.size();
-        
-        // 计算 L1 作为 L2 的大致占位 (如果在输出里需要精确L2，可以调用你原来的 L2BoundCalculator)
+
         long sum = 0; for(int s : data.items) sum += s;
-        long l2Approx = (long) Math.ceil((double)sum / data.capacity); 
+        long l2Approx = (long) Math.ceil((double)sum / data.capacity);
 
         System.out.println("Time taken: " + elapsed + "ms");
         System.out.println("Total Bins (objective_value): " + obj + " (L2 lower bound roughly: " + l2Approx + ")");
-        
-        // ================== 核心修改区：严格匹配最新的 Solution 格式 ==================
+
+        // Write solution in the required format.
         try (PrintWriter pw = new PrintWriter(new FileWriter(solutionPath))) {
             File instFile = new File(instancePath);
-            String setName = instFile.getParentFile().getName(); // 例如: "testdual0"
-            String instName = instFile.getName().replace(".txt", ""); // 例如: "binpack0"
-            
-            // 第一行: SetName_InstanceName (使用下划线拼接)
+            String setName = instFile.getParentFile().getName();
+            String instName = instFile.getName().replace(".txt", "");
+
+            // Line 1: SetName_InstanceName
             pw.println(setName + "_" + instName);
-            
-            // 第二行: obj=    objective_value    L2_bound (使用 \t 制表符分隔)
+
+            // Line 2: obj= objective_value L2_bound (tab-separated)
             pw.println("obj=\t" + obj + "\t" + l2Approx);
-            
-            // 第三行及以后: 每一行代表一个箱子，里面的物品索引以空格分隔
+
+            // Line 3+: each line lists item indices (space-separated) in one bin
             for (Bin bin : resultBins) {
-                if (bin.itemIndices.isEmpty()) continue; // 过滤掉空箱子防报错
-                
+                if (bin.itemIndices.isEmpty()) continue;
+
                 StringBuilder sb = new StringBuilder();
                 for (int i = 0; i < bin.itemIndices.size(); i++) {
                     sb.append(bin.itemIndices.get(i));
-                    // 除了最后一个物品，其他物品后追加空格
-                    if (i < bin.itemIndices.size() - 1) {
-                        sb.append(" ");
-                    }
+                    if (i < bin.itemIndices.size() - 1) sb.append(" ");
                 }
                 pw.println(sb.toString());
             }
@@ -90,15 +98,15 @@ public class GPHH20617232 {
         System.out.println("Solution strictly saved to: " + solutionPath);
     }
 
-    // ================== 训练执行流 ==================
+    // Trains multiple GP trees and serializes them for later use in testing.
     private static void runTrainingFlow() throws Exception {
         System.out.println("=== Starting Training Phase ===");
-        
-        // 1. 读取训练集 (强烈建议把双峰的 class0, class4, class8 全放在一个文件夹里读取)
+
+        // Load all training instances from the dualdistribution/train directory.
         List<int[]> trainData = new ArrayList<>();
-        int capacity = 100; // 根据数据集实际容量调整
-        
-        File trainDir = new File("dualdistribution/train"); 
+        int capacity = 100;
+
+        File trainDir = new File("dualdistribution/train");
         if(trainDir.exists()) {
             Files.walk(Paths.get(trainDir.getPath()))
                  .filter(Files::isRegularFile)
@@ -110,24 +118,25 @@ public class GPHH20617232 {
                      } catch(Exception e) { }
                  });
         }
-        
+
         if(trainData.isEmpty()) {
             System.out.println("Generating synthetic dual-distribution dummy data for fallback test...");
             trainData.add(generateDummyDualDist(500));
         }
 
         System.out.println("Total training instances loaded: " + trainData.size());
-        
+
         new File("best_heuristics").mkdirs();
-        
-        // 2. 训练多棵树形成森林 (每次采用不同随机种子)
-        // 在实际交CW前，让它跑 5 ~ 9 次，生成一堆 .ser 文件
-        int ensembleSize = 5; 
+
+        // Train multiple trees (ensemble) with controlled fixed seeds.
+        // Each tree explores a different region of the search space, producing diverse
+        // heuristics that complement each other at test time via majority voting.
+        int ensembleSize = 5;
         for (int i = 0; i < ensembleSize; i++) {
-            long seed = System.currentTimeMillis() + i * 999;
+            long seed = ENSEMBLE_SEEDS[i];
             System.out.println("\n--- Training Tree " + (i+1) + "/" + ensembleSize + " (Seed: " + seed + ") ---");
-            GPNode bestTree = BPPEnv.trainForest(trainData, capacity, seed, 60); // 跑60代
-            
+            GPNode bestTree = BPPEnv.trainForest(trainData, capacity, seed, 60); // 60 generations
+
             String outPath = "best_heuristics/tree_model_" + i + ".ser";
             try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(outPath))) {
                 oos.writeObject(bestTree);
@@ -137,35 +146,36 @@ public class GPHH20617232 {
         System.out.println("\nTraining complete! Now run test mode.");
     }
 
-    // ================== 解析工具 ==================
+    // Holds parsed instance data: bin capacity and the list of item sizes.
     static class InstanceData { int capacity; int[] items; }
-    
+
+    // Reads an instance file and returns capacity (fixed at 100) and item sizes.
     private static InstanceData parseInstance(String path) throws Exception {
         Scanner sc = new Scanner(new File(path));
         List<Integer> itemList = new ArrayList<>();
-        
-        // 只要文件里还有数字，就一直读取到末尾
+
         while (sc.hasNextInt()) {
             itemList.add(sc.nextInt());
         }
         sc.close();
-        
+
         InstanceData data = new InstanceData();
-        data.capacity = 100; // ★ 严格遵守 CW 要求，箱子容量始终固定为 100
+        data.capacity = 100; // bin capacity is always 100 as per competition rules
         data.items = new int[itemList.size()];
-        
+
         for (int i = 0; i < itemList.size(); i++) {
             data.items[i] = itemList.get(i);
         }
-        
+
         return data;
     }
-    
+
+    // Generates synthetic dual-distribution data as a fallback for testing.
     private static int[] generateDummyDualDist(int n) {
         int[] items = new int[n];
         Random r = new Random();
         for(int i=0; i<n; i++) {
-            // 简单模拟双峰分布
+            // Roughly simulates a bimodal distribution: large or small items.
             items[i] = r.nextBoolean() ? (70 + r.nextInt(20)) : (20 + r.nextInt(15));
         }
         return items;
